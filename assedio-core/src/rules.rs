@@ -8,10 +8,49 @@
 
 use crate::types::*;
 
-/// Directions a March moves a piece: vertically or horizontally.
-const MARCH_DIRS: [(i8, i8); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
-/// Directions a Flank moves a piece: diagonally.
-const FLANK_DIRS: [(i8, i8); 4] = [(-1, -1), (-1, 1), (1, -1), (1, 1)];
+/// Directions a piece moves in: the first four, vertically and horizontally,
+/// for a March, and the last four, diagonally, for a Flank.
+const MOVE_DIRS: [(i8, i8); 8] = [
+    (-1, 0),
+    (1, 0),
+    (0, -1),
+    (0, 1),
+    (-1, -1),
+    (-1, 1),
+    (1, -1),
+    (1, 1),
+];
+
+fn move_dirs(kind: TokenKind) -> std::ops::Range<usize> {
+    match kind {
+        TokenKind::March => 0..4,
+        TokenKind::Flank => 4..8,
+    }
+}
+
+const OFF_BOARD: u8 = u8::MAX;
+
+const fn steps() -> [[u8; BOARD_SQUARES]; MOVE_DIRS.len()] {
+    let mut steps = [[OFF_BOARD; BOARD_SQUARES]; MOVE_DIRS.len()];
+    let mut dir = 0;
+    while dir < MOVE_DIRS.len() {
+        let mut index = 0;
+        while index < BOARD_SQUARES {
+            let row = (index / BOARD_COLS) as i8 + MOVE_DIRS[dir].0;
+            let col = (index % BOARD_COLS) as i8 + MOVE_DIRS[dir].1;
+            if row >= 0 && row < BOARD_ROWS as i8 && col >= 0 && col < BOARD_COLS as i8 {
+                steps[dir][index] = (row as usize * BOARD_COLS + col as usize) as u8;
+            }
+            index += 1;
+        }
+        dir += 1;
+    }
+    steps
+}
+
+/// The square index one step from each square in each of [`MOVE_DIRS`], or
+/// [`OFF_BOARD`].
+const STEPS: [[u8; BOARD_SQUARES]; MOVE_DIRS.len()] = steps();
 
 /// What one attacker took. Siege engines only ever destroy castles, and every
 /// other piece only ever kills a piece — an enemy or a rock.
@@ -101,7 +140,7 @@ impl EventSink for Vec<GameEvent> {
 }
 
 pub fn initial_state() -> GameState {
-    let mut board = [[None; BOARD_COLS]; BOARD_ROWS];
+    let mut board = Board::EMPTY;
 
     // Back row: spear, bow, trebuchet, bow, spear across the middle five
     // columns. The castle columns either side of them start empty; the
@@ -132,22 +171,31 @@ pub fn initial_state() -> GameState {
         for (i, (&back_kind, &front_kind)) in back.iter().zip(front.iter()).enumerate() {
             // The five pieces sit between the outer two castles.
             let col = CASTLE_COLS[0] + 1 + i as u8;
-            board[back_row as usize][col as usize] = Some(Piece {
-                kind: back_kind,
-                owner: player,
-            });
-            board[front_row as usize][col as usize] = Some(Piece {
-                kind: front_kind,
-                owner: player,
-            });
+            board.set(
+                Square::new(back_row, col),
+                Some(Piece {
+                    kind: back_kind,
+                    owner: player,
+                }),
+            );
+            board.set(
+                Square::new(front_row, col),
+                Some(Piece {
+                    kind: front_kind,
+                    owner: player,
+                }),
+            );
         }
     }
 
     for col in ROCK_COLS {
-        board[HILLTOP_ROW as usize][col as usize] = Some(Piece {
-            kind: PieceKind::Rock,
-            owner: NEUTRAL,
-        });
+        board.set(
+            Square::new(HILLTOP_ROW, col),
+            Some(Piece {
+                kind: PieceKind::Rock,
+                owner: NEUTRAL,
+            }),
+        );
     }
 
     // Both sides open with the March token Attack side up on the middle row and
@@ -178,79 +226,62 @@ pub fn initial_state() -> GameState {
     }
 }
 
-/// Destinations for a piece under `kind`'s Move side: vertical and horizontal
-/// lines for a March, diagonals for a Flank. Moving never captures, so a piece
-/// stops before any occupied square, rocks included, and a standing enemy
-/// castle stops it too: it may neither enter one nor pass through it. Its own
-/// castles are open ground — the trebuchet opens the game standing on one.
-fn move_destinations_into(
-    state: &GameState,
-    player: u8,
-    from: Square,
-    kind: TokenKind,
-    out: &mut Vec<Choice>,
-) {
-    let dirs = match kind {
-        TokenKind::March => &MARCH_DIRS,
-        TokenKind::Flank => &FLANK_DIRS,
-    };
-    for &(drow, dcol) in dirs {
-        let mut square = from;
-        while let Some(next) = square.offset(drow, dcol) {
-            if state.piece_at(next).is_some() || state.blocks_move(next, player) {
-                break;
-            }
-            out.push(Choice::Move { from, to: next });
-            square = next;
-        }
-    }
-}
-
+/// Every move `kind`'s Move side offers: a piece of the current player's on
+/// the token's line, sent vertically or horizontally for a March and
+/// diagonally for a Flank. Moving never captures, so a piece stops before any
+/// occupied square, rocks included, and a standing enemy castle stops it too:
+/// it may neither enter one nor pass through it. Its own castles are open
+/// ground — the trebuchet opens the game standing on one.
 fn move_choices_into(state: &GameState, kind: TokenKind, out: &mut Vec<Choice>) {
     let player = state.current_player;
     let line = state.token(player, kind).line;
-    for square in GameState::line_squares(kind, line) {
-        match state.piece_at(square) {
-            Some(piece) if piece.owner == player => {
-                move_destinations_into(state, player, square, kind, out)
+    let movers = state.board.occupied_by(player) & GameState::line_mask(kind, line);
+    let blocked = state.board.occupied() | state.standing_castles(GameState::opponent(player));
+    for from in squares_of(movers) {
+        for dir in move_dirs(kind) {
+            let mut to = STEPS[dir][from.index()];
+            while to != OFF_BOARD && blocked & 1 << to == 0 {
+                out.push(Choice::Move {
+                    from,
+                    to: Square::from_index(to as usize),
+                });
+                to = STEPS[dir][to as usize];
             }
-            _ => {}
         }
     }
 }
 
-/// Every square the piece on `from` could take as the board stands: a standing
-/// enemy castle for a siege engine, and for any other piece a piece that is
-/// not its own — an enemy or a rock.
+/// Every square the piece on `from` could take as the board stands, as a
+/// bitboard: a standing enemy castle for a siege engine, and for any other
+/// piece a piece that is not its own — an enemy or a rock.
 ///
 /// The trebuchet's hilltop needs no check of its own. Every square three from a
 /// castle is a hilltop or another castle, and an enemy castle can only be stood
 /// on once it is rubble, which is a hilltop.
+#[inline]
+fn target_mask(state: &GameState, from: Square, piece: Piece) -> Bitboard {
+    let zone = piece.kind.zone_mask(from);
+    if piece.kind.is_siege() {
+        zone & state.standing_castles(GameState::opponent(piece.owner))
+    } else {
+        zone & state.board.occupied() & !state.board.occupied_by(piece.owner)
+    }
+}
+
+/// The squares of [`target_mask`].
 pub(crate) fn targets(
     state: &GameState,
     from: Square,
     piece: Piece,
-) -> impl Iterator<Item = Square> + '_ {
-    zone_squares(from, piece.kind).filter(move |&target| {
-        if piece.kind.is_siege() {
-            state
-                .standing_castle_at(target)
-                .is_some_and(|owner| owner != piece.owner)
-        } else {
-            state
-                .piece_at(target)
-                .is_some_and(|victim| victim.owner != piece.owner)
-        }
-    })
+) -> impl Iterator<Item = Square> {
+    squares_of(target_mask(state, from, piece))
 }
 
 /// Every on-board square in a piece's Attack Zone, whoever is standing there.
 /// [`targets`] narrows this to the squares holding something to take; the board
 /// wants the wider set to show where a move would not survive.
 pub(crate) fn zone_squares(from: Square, kind: PieceKind) -> impl Iterator<Item = Square> {
-    kind.attack_zone()
-        .iter()
-        .filter_map(move |&(drow, dcol)| from.offset(drow, dcol))
+    squares_of(kind.zone_mask(from))
 }
 
 /// The next piece of the current player's on `kind`'s line, at or after index
@@ -259,11 +290,15 @@ pub(crate) fn zone_squares(from: Square, kind: PieceKind) -> impl Iterator<Item 
 fn next_attacker(state: &GameState, kind: TokenKind, from: u8) -> Option<u8> {
     let player = state.current_player;
     let line = state.token(player, kind).line;
+    let mine = state.board.occupied_by(player);
     (from..GameState::line_len(kind)).find(|&index| {
         let square = GameState::line_square(kind, line, index);
-        state.piece_at(square).is_some_and(|piece| {
-            piece.owner == player && targets(state, square, piece).next().is_some()
-        })
+        mine & square.bit() != 0
+            && target_mask(
+                state,
+                square,
+                state.piece_at(square).expect("an occupied square"),
+            ) != 0
     })
 }
 
@@ -342,7 +377,7 @@ pub struct AttackReach {
 
 impl AttackReach {
     pub fn squares(bits: u64) -> impl Iterator<Item = Square> {
-        GameState::squares().filter(move |square| bits >> square.index() & 1 == 1)
+        squares_of(bits)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -356,27 +391,25 @@ pub fn attack_preview(state: &GameState, player: u8, kind: TokenKind) -> AttackR
     let line = state.token(player, kind).line;
     let mut reach = AttackReach::default();
 
-    for square in GameState::line_squares(kind, line) {
-        let Some(piece) = state.piece_at(square) else {
-            continue;
-        };
-        if piece.owner != player {
-            continue;
-        }
+    let attackers = state.board.occupied_by(player) & GameState::line_mask(kind, line);
+    for square in squares_of(attackers) {
+        let piece = state.piece_at(square).expect("an occupied square");
         if !piece.kind.is_siege() {
-            for target in zone_squares(square, piece.kind) {
-                reach.zone |= 1 << target.index();
-            }
+            reach.zone |= piece.kind.zone_mask(square);
         }
-        for target in targets(state, square, piece) {
-            reach.attackers |= 1 << square.index();
-            if piece.kind.is_siege() {
+        let targets = target_mask(state, square, piece);
+        if targets == 0 {
+            continue;
+        }
+        reach.attackers |= square.bit();
+        if piece.kind.is_siege() {
+            for target in squares_of(targets) {
                 let (_, index) =
                     GameState::castle_slot_at(target).expect("a siege engine takes castles");
                 reach.castles[index] = true;
-            } else {
-                reach.pieces |= 1 << target.index();
             }
+        } else {
+            reach.pieces |= targets;
         }
     }
 
@@ -386,7 +419,12 @@ pub fn attack_preview(state: &GameState, player: u8, kind: TokenKind) -> AttackR
 /// Resolve one attacker. Targets are taken as they are chosen rather than all
 /// at once, so an attacker later down the line cannot spend itself on a target
 /// an earlier one has already taken.
-fn fire(state: &mut GameState, from: Square, target: Square, sink: &mut impl EventSink) {
+fn fire(
+    state: &mut GameState,
+    from: Square,
+    target: Square,
+    sink: &mut impl EventSink,
+) -> Casualty {
     let player = state.current_player;
     let token = state.pending[0];
     let piece = state
@@ -412,23 +450,17 @@ fn fire(state: &mut GameState, from: Square, target: Square, sink: &mut impl Eve
         target,
         casualty,
     });
+    casualty
 }
 
-/// Both win conditions, checked against both players. Only the side that was
-/// just attacked can have lost — attacks never touch the attacker's own
-/// material — but checking both keeps the rule in one place.
-fn check_outcome(state: &mut GameState) {
-    if state.outcome.is_some() {
-        return;
-    }
-    for player in 0..NUM_PLAYERS as u8 {
-        let destroyed = state.castles_standing(player) == 0;
-        let disarmed = state.siege_engines(player) == 0;
-        if destroyed || disarmed {
-            state.outcome = Some(Outcome::Winner {
-                player: GameState::opponent(player),
-            });
-            return;
+/// Whether `casualty` cost `victim` the game: their last castle, or their last
+/// siege engine, without which they can no longer win. Only the side attacked
+/// can lose anything, and only to what was just taken.
+fn lost_the_game(state: &GameState, victim: u8, casualty: Casualty) -> bool {
+    match casualty {
+        Casualty::Castle => state.castles_standing(victim) == 0,
+        Casualty::Piece { piece } => {
+            piece.owner == victim && piece.kind.is_siege() && state.siege_engines(victim) == 0
         }
     }
 }
@@ -570,9 +602,11 @@ pub fn apply_with<S: EventSink>(state: &mut GameState, choice: &Choice, sink: &m
             pop_pending(state);
         }
         Choice::Attack { from, target } => {
-            fire(state, from, target, sink);
+            let casualty = fire(state, from, target, sink);
             state.attack_index += 1;
-            check_outcome(state);
+            if lost_the_game(state, GameState::opponent(player), casualty) {
+                state.outcome = Some(Outcome::Winner { player });
+            }
         }
         Choice::HoldFire { from } => {
             let token = state.pending[0];
@@ -625,7 +659,7 @@ mod tests {
     /// left as dealt.
     fn empty_board() -> GameState {
         let mut state = initial_state();
-        state.board = [[None; BOARD_COLS]; BOARD_ROWS];
+        state.board = Board::EMPTY;
         state
     }
 
@@ -687,6 +721,33 @@ mod tests {
             .map(|(index, _)| GameState::castle_square(enemy, index))
             .collect();
         (pieces, castles)
+    }
+
+    /// The occupancy bitboards are kept beside the cells rather than read off
+    /// them, so every move and every kill has to keep the two in step.
+    #[test]
+    fn occupancy_follows_the_pieces_through_random_play() {
+        use crate::rand_core::{Rng, SeedableRng};
+
+        let mut rng = wyrand::WyRand::seed_from_u64(5);
+        for _ in 0..50 {
+            let mut state = initial_state();
+            while state.outcome.is_none() {
+                for owner in [0, 1, NEUTRAL] {
+                    let from_cells = GameState::squares()
+                        .filter(|&square| {
+                            state
+                                .piece_at(square)
+                                .is_some_and(|piece| piece.owner == owner)
+                        })
+                        .fold(0, |bits, square| bits | square.bit());
+                    assert_eq!(state.board.occupied_by(owner), from_cells);
+                }
+                let choices = legal_choices(&state);
+                let index = ((rng.next_u64() as u128 * choices.len() as u128) >> 64) as usize;
+                apply(&mut state, &choices[index]);
+            }
+        }
     }
 
     /// Play a whole Attack out, taking the first target offered at every stop.

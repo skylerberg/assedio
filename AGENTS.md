@@ -52,6 +52,10 @@ Rust workspace plus a Svelte frontend:
   implemented in TypeScript is a bug.
 - `GameState` is `Copy`: fixed arrays, no `Vec`, so a determinization is a
   memcpy. Keep it that way — the search clones one per iteration.
+- The `Board` keeps each owner's squares as a `u64` bitboard beside its cells,
+  so line, zone and target questions are masks rather than walks. `Board::set`
+  is the only writer and keeps the two in step; the wire format serializes the
+  cells alone.
 - A turn is modelled as separate decisions — slide, activation order, piece
   move, and one target per attacker in an Attack — rather than one compound
   choice, to keep the branching factor down. `settle` runs the game past

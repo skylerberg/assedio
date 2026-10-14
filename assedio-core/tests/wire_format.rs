@@ -140,7 +140,7 @@ fn events_use_camel_case_field_names() {
     // An Attack is announced once, and every attacker in it is its own event.
     // This row carries one of each casualty.
     let mut state = initial_state();
-    state.board = [[None; BOARD_COLS]; BOARD_ROWS];
+    state.board = Board::EMPTY;
     for (row, col, kind, owner) in [
         (3, 2, PieceKind::Rock, NEUTRAL),
         (3, 6, PieceKind::Rock, NEUTRAL),
@@ -238,7 +238,7 @@ fn events_use_camel_case_field_names() {
 #[test]
 fn holding_fire_is_its_own_event() {
     let mut state = initial_state();
-    state.board = [[None; BOARD_COLS]; BOARD_ROWS];
+    state.board = Board::EMPTY;
     for (row, col, kind, owner) in [
         (3, 1, PieceKind::Swordsman, 0),
         (0, 3, PieceKind::Trebuchet, 0),
@@ -289,7 +289,7 @@ fn outcomes_are_tagged() {
 #[test]
 fn preview_shapes_use_the_keys_the_board_draws_from() {
     let mut state = initial_state();
-    state.board = [[None; BOARD_COLS]; BOARD_ROWS];
+    state.board = Board::EMPTY;
     for (row, col, kind, owner) in [
         (0, 1, PieceKind::Swordsman, 0),
         (1, 3, PieceKind::Swordsman, 1),
