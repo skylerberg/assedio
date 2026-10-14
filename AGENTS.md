@@ -32,6 +32,9 @@ Rust workspace plus a Svelte frontend:
     recoloured to the rules sheet's palette, and the rock, which belongs to
     neither
   - `src/wasm-pkg/` — generated wasm output (gitignored)
+- `infra/terraform/` — the AWS hosting for `assedio.skylerberg.com` (S3,
+  CloudFront, Route 53) and the role the deploy workflow assumes; applied by
+  hand, see "Deploying" in `README.md`
 
 ## Build & Run Commands
 
