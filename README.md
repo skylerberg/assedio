@@ -39,7 +39,8 @@ A Rust workspace and a Svelte frontend:
   returns JSON, so TypeScript never mirrors a Rust memory layout.
 * `assedio-runner/` — CLI for batch simulation, replay and benchmarking.
 * `src/` — Svelte 5 + TypeScript frontend.
-  * `src/data/` — TypeScript mirror of the wire format, plus the log formatter.
+  * `src/data/` — TypeScript mirror of the wire format, the log formatter, the
+    turn-by-turn record of a game, and the save that lets one be resumed.
   * `src/engine/` — the wasm loader and its wrappers.
   * `src/ai/` — the worker the search runs in, and the controller driving it.
   * `src/components/` — board, panels, rules sheet, menu.
@@ -79,7 +80,7 @@ trades a few seconds of thinking for the strength.
 
 ```sh
 cargo test                                     # engine, wire format, tuner
-pnpm test                                      # log formatter and TS helpers
+pnpm test                                      # log, turn records, saves, helpers
 pnpm run check                                 # svelte-check
 
 pnpm run run-games -- bench                    # search throughput

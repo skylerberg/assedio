@@ -226,7 +226,11 @@ fn move_choices_into(state: &GameState, kind: TokenKind, out: &mut Vec<Choice>) 
 /// The trebuchet's hilltop needs no check of its own. Every square three from a
 /// castle is a hilltop or another castle, and an enemy castle can only be stood
 /// on once it is rubble, which is a hilltop.
-fn targets(state: &GameState, from: Square, piece: Piece) -> impl Iterator<Item = Square> + '_ {
+pub(crate) fn targets(
+    state: &GameState,
+    from: Square,
+    piece: Piece,
+) -> impl Iterator<Item = Square> + '_ {
     zone_squares(from, piece.kind).filter(move |&target| {
         if piece.kind.is_siege() {
             state
@@ -243,7 +247,7 @@ fn targets(state: &GameState, from: Square, piece: Piece) -> impl Iterator<Item 
 /// Every on-board square in a piece's Attack Zone, whoever is standing there.
 /// [`targets`] narrows this to the squares holding something to take; the board
 /// wants the wider set to show where a move would not survive.
-fn zone_squares(from: Square, kind: PieceKind) -> impl Iterator<Item = Square> {
+pub(crate) fn zone_squares(from: Square, kind: PieceKind) -> impl Iterator<Item = Square> {
     kind.attack_zone()
         .iter()
         .filter_map(move |&(drow, dcol)| from.offset(drow, dcol))

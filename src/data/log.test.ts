@@ -3,6 +3,8 @@ import {
   describeEvent,
   describeMoveOutcome,
   describeSlideOutcome,
+  describeThreat,
+  describeTurn,
   destroyedSquares,
   lineName,
   squareName,
@@ -26,12 +28,12 @@ describe('board coordinates', () => {
 describe('describeEvent', () => {
   it('announces an Attack by the line it comes from', () => {
     const event: GameEvent = { type: 'attacked', player: 1, token: 'flank', line: 3 }
-    expect(describeEvent(event)).toEqual({ player: 1, text: 'attacks along column d' })
+    expect(describeEvent(event)).toEqual({ text: 'Attacks along column d', squares: [] })
   })
 
   it('names a slide by the token and the line it lands on', () => {
     const event: GameEvent = { type: 'slid', player: 0, token: 'march', from: 3, to: 1 }
-    expect(describeEvent(event)?.text).toBe('slides the March token to row 2')
+    expect(describeEvent(event)?.text).toBe('Slides the March token to row 2')
   })
 
   it('names a move by the token that made it', () => {
@@ -43,7 +45,13 @@ describe('describeEvent', () => {
       from: { row: 1, col: 2 },
       to: { row: 3, col: 4 },
     }
-    expect(describeEvent(event)?.text).toBe('flanks Swordsman c2 → e4')
+    expect(describeEvent(event)).toEqual({
+      text: 'Flanks Swordsman c2 → e4',
+      squares: [
+        { row: 1, col: 2 },
+        { row: 3, col: 4 },
+      ],
+    })
   })
 
   it('names the attacker and the piece it kills', () => {
@@ -57,9 +65,12 @@ describe('describeEvent', () => {
       casualty: { type: 'piece', piece: { kind: 'flail', owner: 0 } },
     }
     expect(describeEvent(event)).toEqual({
-      player: 1,
       text: 'Archer d4 kills Flail b2',
-      grave: true,
+      squares: [
+        { row: 3, col: 3 },
+        { row: 1, col: 1 },
+      ],
+      tone: 'kill',
     })
   })
 
@@ -86,11 +97,7 @@ describe('describeEvent', () => {
       target: { row: 3, col: 3 },
       casualty: { type: 'piece', piece: { kind: 'rock', owner: NEUTRAL } },
     }
-    expect(describeEvent(event)).toEqual({
-      player: 1,
-      text: 'Swordsman d5 kills the rock on d4',
-      grave: true,
-    })
+    expect(describeEvent(event)?.text).toBe('Swordsman d5 kills the rock on d4')
   })
 
   it('records an attacker that held its fire', () => {
@@ -104,12 +111,12 @@ describe('describeEvent', () => {
     expect(describeEvent(event)?.text).toBe('Swordsman d4 holds its fire')
   })
 
-  it('leaves the game-over line unattributed so it is not prefixed twice', () => {
+  it('names the winner', () => {
     const entry = describeEvent({
       type: 'gameOver',
       outcome: { type: 'winner', player: 1 },
     })
-    expect(entry).toEqual({ player: -1, text: 'Umber wins', grave: true })
+    expect(entry).toEqual({ text: 'Umber wins', squares: [], tone: 'outcome' })
   })
 
   it('drops turn boundaries, which the log does not show', () => {
@@ -182,6 +189,7 @@ function position(pieces: [Square, PieceKind, number][]): GameState {
 
 describe('describeMoveOutcome', () => {
   const state = position([
+    [{ row: 0, col: 1 }, 'spearman', 0],
     [{ row: 1, col: 3 }, 'swordsman', 1],
     [{ row: 3, col: 2 }, 'rock', NEUTRAL],
   ])
@@ -198,7 +206,7 @@ describe('describeMoveOutcome', () => {
         threatenedCastles: [{ row: 6, col: 1 }],
       }),
     ).toBe(
-      'b1 → c2, and your Attack then bears on Swordsman d2, the rock on c4 and the castle on b7.',
+      'Spearman b1 → c2, and your Attack then bears on Swordsman d2, the rock on c4 and the castle on b7.',
     )
   })
 
@@ -210,7 +218,7 @@ describe('describeMoveOutcome', () => {
         threatenedPieces: [],
         threatenedCastles: [],
       }),
-    ).toBe('b1 → a2.')
+    ).toBe('Spearman b1 → a2.')
   })
 })
 
@@ -245,5 +253,97 @@ describe('describeSlideOutcome', () => {
     ).toBe(
       'Nothing on column f could move; next turn the Attack there bears on nothing, as the board stands.',
     )
+  })
+})
+
+describe('describeTurn', () => {
+  const struck: GameEvent = {
+    type: 'struck',
+    player: 0,
+    token: 'march',
+    kind: 'swordsman',
+    from: { row: 2, col: 1 },
+    target: { row: 3, col: 1 },
+    casualty: { type: 'piece', piece: { kind: 'flail', owner: 1 } },
+  }
+
+  it('folds an Attack that found no one into one quiet line', () => {
+    const entries = describeTurn({
+      player: 0,
+      round: 0,
+      after: null,
+      events: [
+        { type: 'slid', player: 0, token: 'flank', from: 4, to: 2 },
+        { type: 'attacked', player: 0, token: 'march', line: 3 },
+        { type: 'passed', player: 0, token: 'flank' },
+        { type: 'turnEnded', player: 0 },
+      ],
+    })
+    expect(entries.map((entry) => entry.text)).toEqual([
+      'Slides the Flank token to column c',
+      'Attacks along row 4, with nothing in reach',
+      'Takes no action with the Flank token',
+    ])
+    expect(entries[1].tone).toBe('quiet')
+  })
+
+  it('does not call an Attack empty while its first attacker is still choosing', () => {
+    const entries = describeTurn({
+      player: 0,
+      round: 0,
+      after: null,
+      events: [{ type: 'attacked', player: 0, token: 'march', line: 2 }],
+    })
+    expect(entries).toEqual([{ text: 'Attacks along row 3', squares: [] }])
+  })
+
+  it('announces an Attack plainly when an attacker answers it', () => {
+    const entries = describeTurn({
+      player: 0,
+      round: 0,
+      after: null,
+      events: [{ type: 'attacked', player: 0, token: 'march', line: 2 }, struck],
+    })
+    expect(entries.map((entry) => entry.text)).toEqual([
+      'Attacks along row 3',
+      'Swordsman b3 kills Flail b4',
+    ])
+  })
+})
+
+describe('describeThreat', () => {
+  const state = position([
+    [{ row: 0, col: 4 }, 'trebuchet', 0],
+    [{ row: 1, col: 4 }, 'batteringRam', 1],
+    [{ row: 2, col: 2 }, 'swordsman', 0],
+  ])
+
+  it('names every attacker that reaches the square', () => {
+    expect(
+      describeThreat(
+        state,
+        { row: 2, col: 2 },
+        [
+          { from: { row: 2, col: 3 }, kind: 'swordsman', targets: [{ row: 2, col: 2 }] },
+          { from: { row: 4, col: 2 }, kind: 'spearman', targets: [{ row: 2, col: 2 }] },
+        ],
+        "Umber's Attack along row 3 next turn",
+      ),
+    ).toBe("Umber's Attack along row 3 next turn: Swordsman d3 and Spearman c5 can kill this swordsman.")
+  })
+
+  it('speaks of a castle when a siege engine is the attacker', () => {
+    expect(
+      describeThreat(
+        state,
+        { row: 0, col: 4 },
+        [{ from: { row: 1, col: 4 }, kind: 'batteringRam', targets: [{ row: 0, col: 4 }] }],
+        "Umber's Attack along column e next turn",
+      ),
+    ).toBe("Umber's Attack along column e next turn: Battering Ram e2 can destroy this castle.")
+  })
+
+  it('says nothing when no attacker reaches the square', () => {
+    expect(describeThreat(state, { row: 5, col: 5 }, [], 'Your Attack')).toBeNull()
   })
 })

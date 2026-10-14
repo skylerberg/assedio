@@ -8,7 +8,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::rules::{apply, attack_preview, legal_choices, AttackReach};
+use crate::rules::{apply, attack_preview, legal_choices, targets, zone_squares, AttackReach};
 use crate::types::*;
 
 /// Positions a single [`forced_order`] enumeration may visit before it gives
@@ -225,6 +225,59 @@ pub fn pending_attackers(state: &GameState) -> Vec<Square> {
         apply(&mut probe, &choice);
     }
     squares
+}
+
+/// One piece's Attack Zone, and what in it the piece could take today.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PieceReach {
+    /// For a siege engine, only the enemy castles in range: the empty squares
+    /// around a ram are not a threat to anything, and drawing them says so.
+    pub zone: Vec<Square>,
+    pub targets: Vec<Square>,
+}
+
+pub fn piece_reach(state: &GameState, square: Square) -> Option<PieceReach> {
+    let piece = state.piece_at(square)?;
+    let zone = zone_squares(square, piece.kind)
+        .filter(|&target| {
+            !piece.kind.is_siege()
+                || state
+                    .standing_castle_at(target)
+                    .is_some_and(|owner| owner != piece.owner)
+        })
+        .collect();
+    Some(PieceReach {
+        zone,
+        targets: targets(state, square, piece).collect(),
+    })
+}
+
+/// One attacker on an armed line, and everything it could take.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Shot {
+    pub from: Square,
+    pub kind: PieceKind,
+    pub targets: Vec<Square>,
+}
+
+/// The pieces an Attack along `kind`'s line would ask for a target, in the
+/// order it would ask them. An Attack's reach says what is in danger; this
+/// says from whom, which is what a player looking at a threatened piece wants.
+pub fn attack_shots(state: &GameState, player: u8, kind: TokenKind) -> Vec<Shot> {
+    let line = state.token(player, kind).line;
+    GameState::line_squares(kind, line)
+        .filter_map(|from| {
+            let piece = state.piece_at(from).filter(|piece| piece.owner == player)?;
+            let targets: Vec<Square> = targets(state, from, piece).collect();
+            (!targets.is_empty()).then_some(Shot {
+                from,
+                kind: piece.kind,
+                targets,
+            })
+        })
+        .collect()
 }
 
 fn threatened_castles(reach: &AttackReach, enemy: u8) -> Vec<Square> {
@@ -528,5 +581,78 @@ mod tests {
     #[test]
     fn nothing_is_pending_outside_an_attack() {
         assert_eq!(pending_attackers(&initial_state()), Vec::<Square>::new());
+    }
+
+    fn sorted(mut squares: Vec<Square>) -> Vec<Square> {
+        squares.sort();
+        squares
+    }
+
+    #[test]
+    fn a_ram_reaches_only_the_enemy_castle_beside_it() {
+        let mut state = empty_board();
+        spare_engines(&mut state);
+        place(&mut state, 1, 4, PieceKind::BatteringRam, 1);
+        place(&mut state, 1, 3, PieceKind::Swordsman, 0);
+
+        let reach = piece_reach(&state, Square::new(1, 4)).unwrap();
+
+        assert_eq!(reach.zone, vec![Square::new(0, 4)]);
+        assert_eq!(reach.targets, vec![Square::new(0, 4)]);
+    }
+
+    #[test]
+    fn a_swordsman_zone_covers_empty_squares_but_takes_only_enemies_and_rocks() {
+        let mut state = empty_board();
+        spare_engines(&mut state);
+        place(&mut state, 2, 4, PieceKind::Swordsman, 0);
+        place(&mut state, 2, 5, PieceKind::Flail, 1);
+        place(&mut state, 2, 3, PieceKind::Flail, 0);
+        place(&mut state, 3, 4, PieceKind::Rock, NEUTRAL);
+
+        let reach = piece_reach(&state, Square::new(2, 4)).unwrap();
+
+        assert_eq!(
+            sorted(reach.zone),
+            sorted(vec![
+                Square::new(1, 4),
+                Square::new(3, 4),
+                Square::new(2, 3),
+                Square::new(2, 5),
+            ]),
+        );
+        assert_eq!(
+            sorted(reach.targets),
+            sorted(vec![Square::new(3, 4), Square::new(2, 5)]),
+        );
+        assert_eq!(piece_reach(&state, Square::new(4, 4)), None);
+    }
+
+    #[test]
+    fn shots_name_each_attacker_with_a_target_in_line_order() {
+        let mut state = empty_board();
+        spare_engines(&mut state);
+        place(&mut state, 2, 1, PieceKind::Swordsman, 0);
+        place(&mut state, 3, 1, PieceKind::Flail, 1);
+        place(&mut state, 2, 4, PieceKind::Archer, 0);
+        place(&mut state, 2, 6, PieceKind::Spearman, 0);
+        place(&mut state, 2, 8, PieceKind::Swordsman, 1);
+        token(&mut state, 0, TokenKind::March, 2, TokenSide::Attack);
+
+        assert_eq!(
+            attack_shots(&state, 0, TokenKind::March),
+            vec![
+                Shot {
+                    from: Square::new(2, 1),
+                    kind: PieceKind::Swordsman,
+                    targets: vec![Square::new(3, 1)],
+                },
+                Shot {
+                    from: Square::new(2, 6),
+                    kind: PieceKind::Spearman,
+                    targets: vec![Square::new(2, 8)],
+                },
+            ],
+        );
     }
 }

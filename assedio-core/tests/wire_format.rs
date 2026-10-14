@@ -2,7 +2,7 @@
 //! rather than an implementation detail. A rename that slips through here
 //! breaks the UI silently at runtime.
 
-use assedio_core::preview::{move_outcomes, slide_outcomes};
+use assedio_core::preview::{attack_shots, move_outcomes, piece_reach, slide_outcomes};
 use assedio_core::rules::apply_logged;
 use assedio_core::types::*;
 use assedio_core::{initial_state, settle_state};
@@ -357,4 +357,33 @@ fn preview_shapes_use_the_keys_the_board_draws_from() {
             "SlideOutcome is missing {key}"
         );
     }
+
+    let reach = serde_json::to_value(piece_reach(&state, Square::new(0, 1))).unwrap();
+    assert_eq!(field(&reach, "targets"), json!([]));
+    assert!(reach.get("zone").is_some(), "PieceReach is missing zone");
+    assert_eq!(
+        serde_json::to_value(piece_reach(&state, Square::new(3, 3))).unwrap(),
+        Value::Null,
+    );
+
+    let mut armed = state;
+    *armed.token_mut(0, TokenKind::March) = Token {
+        line: 0,
+        side: TokenSide::Attack,
+    };
+    armed.set_piece(
+        Square::new(1, 1),
+        Some(Piece {
+            kind: PieceKind::Flail,
+            owner: 1,
+        }),
+    );
+    assert_eq!(
+        serde_json::to_value(attack_shots(&armed, 0, TokenKind::March)).unwrap(),
+        json!([{
+            "from": { "row": 0, "col": 1 },
+            "kind": "swordsman",
+            "targets": [{ "row": 1, "col": 1 }],
+        }]),
+    );
 }

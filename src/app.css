@@ -1,38 +1,53 @@
+/* The palette is the rules sheet's: navy and peach for headings, copper for
+   rules and borders, sepia for the board, and the token art's cyan, orange and
+   red for March, Flank and Attack. */
 :root {
-  --font-display: 'Cinzel', Georgia, serif;
-  --font-body: 'Cormorant Garamond', Georgia, serif;
+  --font-display: 'Bodoni Moda', 'Bodoni 72', Didot, Georgia, serif;
+  --font-body: 'Bodoni Moda', 'Bodoni 72', Didot, Georgia, serif;
 
-  --parchment: #f4ecdd;
-  --parchment-deep: #e8dcc4;
-  --panel: #efe6d3;
-  --ink: #33240f;
-  --ink-soft: #6d5a3e;
-  --ink-faint: #a08f74;
+  --navy: #0d1729;
+  --navy-soft: #1f2b45;
+  --peach: #f8d39d;
+  --copper: #b9782a;
+  --copper-deep: #7a4a17;
+  --copper-soft: rgba(185, 120, 42, 0.4);
+  --maroon: #510f0e;
 
-  /* The two ink colours the piece art is printed in. */
-  --ivory: #fcfbd6;
-  --ivory-edge: #b9a97e;
-  --umber: #3b2313;
-  --umber-edge: #241708;
+  --parchment: #ebe3cd;
+  --parchment-deep: #e1d6bb;
+  --panel: #f1e9d4;
+  --cell: #f3ebd7;
 
-  --gold: #b98f2e;
-  --gold-soft: rgba(185, 143, 46, 0.35);
-  --crimson: #a32222;
-  --azure: #2b6ea8;
-  --amber: #d0731a;
+  --ink: #0d1729;
+  --ink-soft: #3a4256;
+  --ink-faint: #4d5466;
 
-  --board-line: #7a5a33;
-  --hilltop: #d9c7a4;
-  --castle-tint: #cbb692;
+  --ivory: #f8d39d;
+  --ivory-rim: #7b512e;
+  --umber: #764c29;
+  --umber-rim: #2e1c0f;
 
-  --shadow-soft: 0 2px 10px rgba(51, 36, 15, 0.14);
-  --shadow-lift: 0 6px 20px rgba(51, 36, 15, 0.26);
+  --march: #35b1d8;
+  --march-deep: #176f8f;
+  --flank: #ef9f3e;
+  --flank-deep: #9a5a0e;
+  --attack: #e3262b;
+  --attack-deep: #b3161c;
+
+  --board-line: #603813;
+  --terrain: #d8be9a;
+  --castle-fill: #c9a274;
+  --castle-ink: #6e4422;
+  --hill-ink: #6a4019;
+
+  --shadow-soft: 0 2px 8px rgba(43, 28, 10, 0.16);
+  --shadow-lift: 0 10px 30px rgba(43, 28, 10, 0.3);
 
   font-family: var(--font-body);
   color: var(--ink);
   background: var(--parchment);
-  font-size: 17px;
-  line-height: 1.5;
+  font-size: 16px;
+  line-height: 1.45;
 }
 
 * {
@@ -43,12 +58,13 @@
   user-select: none;
 }
 
+/* Mottled like the printed sheet: fractal noise tinted sepia over the
+   parchment, cheap enough to sit under everything. */
 body {
-  min-height: 100vh;
   min-height: 100dvh;
   background:
-    radial-gradient(circle at 20% 10%, rgba(255, 255, 255, 0.5), transparent 45%),
-    radial-gradient(circle at 85% 80%, rgba(185, 143, 46, 0.1), transparent 50%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='360'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.011' numOctaves='4' seed='9' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.42 0 0 0 0 0.32 0 0 0 0 0.18 0.32 0 0 0 -0.1'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+    radial-gradient(circle at 15% 0%, rgba(255, 252, 240, 0.6), transparent 50%),
     var(--parchment);
 }
 
@@ -56,25 +72,28 @@ h1,
 h2,
 h3 {
   font-family: var(--font-display);
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: 800;
+  line-height: 1.15;
 }
 
 button {
   font-family: var(--font-display);
+  font-weight: 700;
   font-size: 0.95rem;
-  color: var(--ink);
+  color: var(--navy);
   background: var(--panel);
-  border: 1px solid var(--gold-soft);
-  border-radius: 4px;
-  padding: 0.5rem 1rem;
+  border: 1.5px solid var(--copper);
+  border-radius: 8px;
+  padding: 0.42rem 0.95rem;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.1s;
 }
 
 button:hover:not(:disabled) {
   background: var(--parchment-deep);
-  border-color: var(--gold);
 }
 
 button:active:not(:disabled) {
@@ -82,31 +101,101 @@ button:active:not(:disabled) {
 }
 
 button:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: default;
 }
 
 button.primary {
-  background: var(--umber);
-  color: var(--ivory);
-  border-color: var(--umber-edge);
+  background: var(--navy);
+  color: var(--peach);
 }
 
 button.primary:hover:not(:disabled) {
-  background: #4c3620;
+  background: var(--navy-soft);
 }
 
+:focus-visible {
+  outline: 2.5px solid var(--march-deep);
+  outline-offset: 2px;
+}
+
+/* A rounded copper frame, with a navy heading bar when it has a `.head`. */
 .panel {
   background: var(--panel);
-  border: 1px solid var(--gold-soft);
-  border-radius: 6px;
+  border: 2px solid var(--copper);
+  border-radius: 14px;
   box-shadow: var(--shadow-soft);
+}
+
+.panel > .head {
+  display: block;
+  background: var(--navy);
+  color: var(--peach);
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 1.02rem;
+  text-align: center;
+  padding: 0.28rem 0.8rem;
+  border-radius: 11px 11px 0 0;
 }
 
 .small-caps {
   font-family: var(--font-display);
+  font-weight: 700;
   font-size: 0.72rem;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink-faint);
+}
+
+/* A checkbox drawn as a switch in the sheet's colours. */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.switch input {
+  appearance: none;
+  flex: none;
+  width: 2.1rem;
+  height: 1.2rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--copper);
+  background: var(--parchment-deep);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.switch input::after {
+  content: '';
+  position: absolute;
+  top: 1.5px;
+  left: 1.5px;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  background: var(--copper);
+  transition: transform 0.15s;
+}
+
+.switch input:checked {
+  background: var(--navy);
+}
+
+.switch input:checked::after {
+  background: var(--peach);
+  transform: translateX(0.88rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

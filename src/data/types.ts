@@ -131,6 +131,20 @@ export interface SlideOutcome extends Threat {
   zone: Square[]
 }
 
+/** One piece's Attack Zone and what in it the piece could take today. A siege
+    engine's zone is only the enemy castles in range. */
+export interface PieceReach {
+  zone: Square[]
+  targets: Square[]
+}
+
+/** One attacker on an armed line and everything it could take. */
+export interface Shot {
+  from: Square
+  kind: PieceKind
+  targets: Square[]
+}
+
 export const TOKEN_KINDS: TokenKind[] = ['march', 'flank']
 
 export const TOKEN_NAMES: Record<TokenKind, string> = {
@@ -167,15 +181,14 @@ export function pendingTokens(state: GameState): TokenKind[] {
   return state.pending.slice(0, state.pendingLen)
 }
 
-/** Whether an Attack is still waiting to be made in this player's turn. */
-export function attackPending(state: GameState): boolean {
-  return pendingTokens(state).some(
-    (kind) => tokenOf(state, state.currentPlayer, kind).side === 'attack',
-  )
-}
-
-/** The token this player shows Attack side up, if one is. */
-export function armedToken(state: GameState, player: number): TokenKind | null {
+/** The token whose Attack `player` makes next: mid-turn, the one still waiting
+    to act Attack side up; otherwise the one showing its Attack side. Mid-turn
+    both can show it — a Move side flips to Attack once it has acted — so the
+    side alone does not say which is still to come. */
+export function attackingToken(state: GameState, player: number): TokenKind | null {
+  if (player === state.currentPlayer && state.phase !== 'slide') {
+    return pendingTokens(state).find((kind) => tokenOf(state, player, kind).side === 'attack') ?? null
+  }
   return TOKEN_KINDS.find((kind) => tokenOf(state, player, kind).side === 'attack') ?? null
 }
 
@@ -252,19 +265,10 @@ const ATTACK_ZONES: Record<PieceKind, [number, number][]> = {
   rock: [],
 }
 
-/** A piece's Attack Zone, relative to where it stands. */
+/** A piece's Attack Zone, relative to where it stands, for the rules sheet's
+    diagrams. The board asks the engine instead, which knows what is in it. */
 export function attackZone(kind: PieceKind): [number, number][] {
   return ATTACK_ZONES[kind]
-}
-
-/** Every on-board square in the Attack Zone of a piece of `kind` on `from`. */
-export function zoneSquares(from: Square, kind: PieceKind): Square[] {
-  return attackZone(kind)
-    .map(([drow, dcol]) => ({ row: from.row + drow, col: from.col + dcol }))
-    .filter(
-      (square) =>
-        square.row >= 0 && square.row < BOARD_ROWS && square.col >= 0 && square.col < BOARD_COLS,
-    )
 }
 
 export const PIECE_NAMES: Record<PieceKind, string> = {
