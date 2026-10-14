@@ -267,6 +267,20 @@ fn next_attacker(state: &GameState, kind: TokenKind, from: u8) -> Option<u8> {
     })
 }
 
+/// The activation order that is never worse than the other, when the position
+/// alone shows one. An Attack with nothing in range can only gain by going
+/// second: the move it waits for may give it a target, and any target may
+/// still be spared, so every position attacking first reaches, moving first
+/// reaches too.
+pub fn dominant_order(state: &GameState) -> Option<TokenKind> {
+    if state.phase != Phase::Order {
+        return None;
+    }
+    let mover = state.sliding_token();
+    let attack_is_idle = next_attacker(state, mover.other(), 0).is_none();
+    attack_is_idle.then_some(mover)
+}
+
 /// The attacker now choosing a target, and the piece standing on it.
 fn current_attacker(state: &GameState) -> (Square, Piece) {
     let kind = state.pending[0];

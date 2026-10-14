@@ -8,7 +8,9 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::rules::{apply, attack_preview, legal_choices, targets, zone_squares, AttackReach};
+use crate::rules::{
+    apply, attack_preview, dominant_order, legal_choices, targets, zone_squares, AttackReach,
+};
 use crate::types::*;
 
 /// Positions a single [`forced_order`] enumeration may visit before it gives
@@ -21,22 +23,16 @@ const ORDER_BUDGET: usize = 30_000;
 /// one goes first is a decision worth putting to them.
 ///
 /// The player would otherwise be asked to order their activations every turn,
-/// and usually there is nothing in the question. An Attack with nothing in
-/// range only gives ground by going first: the move it waits for is what can
-/// arm it, and any target it then finds may still be spared, so the move leads.
-/// Past that the orders are enumerated to the end of the turn, and the question
-/// is dropped only when both reach exactly the same positions.
+/// and usually there is nothing in the question. The [`dominant_order`] is
+/// taken when there is one. Past that the orders are enumerated to the end of
+/// the turn, and the question is dropped only when both reach exactly the same
+/// positions.
 pub fn forced_order(state: &GameState) -> Option<TokenKind> {
     if state.phase != Phase::Order {
         return None;
     }
-    let player = state.current_player;
-    let armed = TOKEN_KINDS
-        .iter()
-        .copied()
-        .find(|&kind| state.token(player, kind).side == TokenSide::Attack)?;
-    if attack_preview(state, player, armed).attackers == 0 {
-        return Some(armed.other());
+    if let Some(first) = dominant_order(state) {
+        return Some(first);
     }
 
     let mut budget = ORDER_BUDGET;
@@ -44,7 +40,8 @@ pub fn forced_order(state: &GameState) -> Option<TokenKind> {
     let flank_first = turn_endings(state, TokenKind::Flank, &mut budget)?;
     // Nothing separates the two, so attacking first is the legible one: the
     // Attack is over and done with before the player is asked to move.
-    (march_first == flank_first).then_some(armed)
+    let attacker = state.sliding_token().other();
+    (march_first == flank_first).then_some(attacker)
 }
 
 /// Every position this turn can end on once `first` activates first, or `None`
@@ -576,6 +573,43 @@ mod tests {
         }
 
         assert!(compared > 100, "only {compared} orders were checked");
+    }
+
+    /// The search is offered only the [`dominant_order`] when there is one, so
+    /// the claim has to hold exactly: every position the other order reaches,
+    /// the dominant one reaches too.
+    #[test]
+    fn the_dominant_order_reaches_everything_the_other_does() {
+        use crate::rand_core::{Rng, SeedableRng};
+
+        let mut rng = wyrand::WyRand::seed_from_u64(23);
+        let mut compared = 0;
+
+        for _ in 0..40 {
+            let mut state = initial_state();
+            while state.outcome.is_none() {
+                if let Some(first) = dominant_order(&state) {
+                    let mut budget = 400_000;
+                    let dominant = turn_endings(&state, first, &mut budget);
+                    let other = turn_endings(&state, first.other(), &mut budget);
+                    if let (Some(dominant), Some(other)) = (dominant, other) {
+                        assert!(
+                            other.is_subset(&dominant),
+                            "{first:?} first missed a position the other order reaches"
+                        );
+                        compared += 1;
+                    }
+                }
+                let choices = legal_choices(&state);
+                let index = ((rng.next_u64() as u128 * choices.len() as u128) >> 64) as usize;
+                apply(&mut state, &choices[index]);
+            }
+        }
+
+        assert!(
+            compared > 200,
+            "only {compared} dominant orders were checked"
+        );
     }
 
     #[test]

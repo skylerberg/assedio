@@ -17,7 +17,7 @@ use mcts::rand_core::Rng;
 use mcts::{Config, Game, SearchResult, Searcher, Status};
 use serde::{Deserialize, Serialize};
 
-use crate::rules::{apply, legal_choices_into};
+use crate::rules::{apply, dominant_order, legal_choices_into};
 use crate::types::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -238,7 +238,13 @@ impl Game for GameState {
     }
 
     fn choices_into(&self, _ctx: &SearchContext, out: &mut Vec<Choice>) {
-        legal_choices_into(self, out);
+        match dominant_order(self) {
+            Some(first) => {
+                out.clear();
+                out.push(Choice::Order { first });
+            }
+            None => legal_choices_into(self, out),
+        }
     }
 
     fn apply_choice<R: Rng + ?Sized>(
@@ -374,4 +380,26 @@ pub fn choose_move<R: Rng + ?Sized>(
     rng: &mut R,
 ) -> Choice {
     Ai::new(state).search(state, player, cfg, None, rng).choice
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rand_core::SeedableRng;
+    use crate::rules::{initial_state, legal_choices};
+
+    #[test]
+    fn the_dominant_order_is_answered_without_a_search() {
+        let mut state = initial_state();
+        let slide = legal_choices(&state)[0];
+        apply(&mut state, &slide);
+        let first = dominant_order(&state).expect("the opening Attack has nothing in range");
+
+        let config = AiConfig::with_iterations(1_000);
+        let mut rng = wyrand::WyRand::seed_from_u64(1);
+        let result = Ai::new(&state).search(&state, state.current_player, &config, None, &mut rng);
+
+        assert_eq!(result.choice, Choice::Order { first });
+        assert_eq!(result.iterations_used, 0);
+    }
 }

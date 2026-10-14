@@ -17,7 +17,7 @@ pub use preview::{
     MoveOutcome, PieceReach, Shot, SlideOutcome,
 };
 pub use rules::{
-    apply, apply_logged, apply_with, attack_preview, initial_state, legal_choices,
+    apply, apply_logged, apply_with, attack_preview, dominant_order, initial_state, legal_choices,
     legal_choices_into, settle_state, AttackReach, Casualty, EventSink, GameEvent,
 };
 pub use search::{evaluate, side_score, Ai, AiConfig, EvalParams, SearchContext};
