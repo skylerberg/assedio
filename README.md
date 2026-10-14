@@ -21,13 +21,30 @@ Requires a Rust toolchain with the `wasm32-unknown-unknown` target, and
 ## Deploying
 
 `.github/workflows/deploy.yml` builds the site on every push to `main` and
-publishes it to GitHub Pages at `https://skylerberg.github.io/assedio/`.
+uploads it to S3, where CloudFront serves it at `https://assedio.skylerberg.com`.
 Nothing about the engine is configured here: `mcts` is a git dependency pinned
 in the workspace `Cargo.toml`, so the workflow builds the commit that names.
 Vite's `base` is relative, so the built site works from whatever path it is
-served under — the project page, a renamed repository, or a local preview.
+served under.
 
-Enable it under *Settings → Pages* by setting the source to *GitHub Actions*.
+The workflow holds no AWS key. It trades GitHub's OIDC token for the
+`assedio-deploy` role, which can only upload to the site's bucket and only be
+assumed from `main` of this repository. The role's ARN is the
+`AWS_DEPLOY_ROLE_ARN` repository variable.
+
+`infra/terraform/` defines everything on the AWS side: the bucket, the
+distribution, its certificate, the `assedio.skylerberg.com` records in the
+`skylerberg.com` Route 53 zone, and the role. State is in
+`gs://cow-terraform-state` under the `assedio` prefix, beside the other
+projects'. Applying it needs AWS credentials (`aws login --region us-west-2`)
+and Google application-default credentials for the state:
+
+```sh
+cd infra/terraform
+terraform init
+terraform apply
+gh variable set AWS_DEPLOY_ROLE_ARN --body "$(terraform output -raw deploy_role_arn)"
+```
 
 ## Layout
 

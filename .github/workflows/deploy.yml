@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Deploy
 
 on:
   push:
@@ -7,16 +7,17 @@ on:
 
 permissions:
   contents: read
-  pages: write
   id-token: write
 
 concurrency:
-  group: pages
+  group: deploy
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
+    env:
+      BUCKET: assedio-web
     steps:
       - uses: actions/checkout@v7
 
@@ -42,18 +43,20 @@ jobs:
 
       - run: pnpm run build
 
-      - uses: actions/configure-pages@v6
-
-      - uses: actions/upload-pages-artifact@v5
+      # After the build, so no install or build script runs holding AWS
+      # credentials. The role is in infra/terraform and trusts only main.
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
-          path: dist
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-west-2
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v5
+      # Assets first, and never deleted: their names are content hashes, so they
+      # are immutable, and a tab opened before this deploy still finds its own.
+      # Everything else is revalidated on each load, which is what lets a deploy
+      # go live without a CloudFront invalidation.
+      - name: Upload
+        run: |
+          aws s3 cp dist/assets "s3://$BUCKET/assets" --recursive \
+            --cache-control 'public, max-age=31536000, immutable'
+          aws s3 cp dist "s3://$BUCKET" --recursive --exclude 'assets/*' \
+            --cache-control 'no-cache'
