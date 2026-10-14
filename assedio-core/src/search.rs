@@ -2,8 +2,8 @@
 //! leans on.
 //!
 //! Assedio is deterministic and perfect information, so most of the
-//! trait falls away: `determinize_into` is a copy, `Side` is `()`, and the root
-//! choices provably cannot vary between iterations. What does need care is the
+//! trait falls away: `determinize_into` is a copy, `Side` is `()`, and no
+//! position's choices can differ between two visits. What does need care is the
 //! leaf evaluation. Both win conditions sit far outside a random rollout's
 //! reach — random play will not walk a trebuchet onto a hilltop or a ram up to
 //! a castle wall — so an uninformed rollout returns a draw almost every time
@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use std::sync::atomic::AtomicBool;
 
 use mcts::rand_core::Rng;
-use mcts::{Config, Game, SearchResult, Searcher, Status};
+use mcts::{ChoicesOnRevisit, Config, Game, SearchResult, Searcher, Status};
 use serde::{Deserialize, Serialize};
 
 use crate::rules::{apply, legal_choices_into};
@@ -223,10 +223,10 @@ impl Game for GameState {
     type Context = SearchContext;
     type Side = ();
 
-    /// Safe here in the strong sense rather than the plausible one:
-    /// `determinize_into` is a bitwise copy, so every iteration searches the
-    /// identical root position and the legal set is the same list every time.
-    const ROOT_CHOICES_INVARIANT: bool = true;
+    /// True in the strong sense rather than the plausible one:
+    /// `determinize_into` is a bitwise copy and nothing is drawn by chance, so
+    /// the path to a node fixes its position and the position fixes its choices.
+    const CHOICES_ON_REVISIT: ChoicesOnRevisit = ChoicesOnRevisit::SameEverywhere;
 
     fn status(&self, _ctx: &SearchContext) -> Status<[f64; 2]> {
         match self.outcome {

@@ -54,7 +54,8 @@ The opponent is [`mcts`](https://github.com/skylerberg/monte_carlo), the
 `monte_carlo` crate, pinned to a commit in `Cargo.toml` — bump it deliberately
 rather than tracking that repository's default branch. The game is deterministic
 and perfect information, so most of the trait falls away: `determinize_into` is
-a bitwise copy, `Side` is `()`, and `ROOT_CHOICES_INVARIANT` is provably true.
+a bitwise copy, `Side` is `()`, and `CHOICES_ON_REVISIT` is `SameEverywhere`, so
+each node's choices are enumerated once rather than on every visit.
 
 Two things about the integration are worth knowing:
 
