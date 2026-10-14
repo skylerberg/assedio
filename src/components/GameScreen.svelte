@@ -334,6 +334,10 @@
     const gen = generation
     try {
       const turn = await ai.takeTurn(game, setup.iterations)
+      if (gen !== generation) return
+      if (!turn.state.outcome && setup.seats[turn.state.currentPlayer] === 'ai') {
+        ai.searchAhead(turn.state, setup.iterations)
+      }
       for (const [index, choice] of turn.choices.entries()) {
         if (gen !== generation) return
         apply(choice)
