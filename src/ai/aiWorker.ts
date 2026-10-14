@@ -1,7 +1,7 @@
 // Runs the search off the main thread so the board stays responsive while the
 // opponent thinks.
 
-import init, { wasm_ai_take_turn } from '../wasm-pkg/command_slide_wasm.js'
+import init, { wasm_ai_take_turn } from '../wasm-pkg/assedio_wasm.js'
 import type { Choice, GameEvent, GameState } from '../data/types'
 
 export interface AiRequest {

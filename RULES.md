@@ -1,126 +1,137 @@
-# Command Slide
+# Assedio
 
-A two-player siege game on a board nine files across and seven ranks deep. Each
-side commands ten pieces, two command tokens, and three castles, and four
-neutral walls stand between them.
+A two-player siege game on a board nine columns across and seven rows deep.
+Each side commands ten pieces, two command tokens and three castles, and four
+neutral rocks stand between them.
 
 ## The board
 
+As the rules sheet draws it: Umber across the top, Ivory along the bottom.
+Rows count up from Ivory's back row, and columns run a to i from Ivory's left.
+
 ```
-       a    b    c    d    e    f    g    h    i
-    ┌────┬────┬────┬────┬────┬────┬────┬────┬────┐
-  7 │    │ ▣C │ Sp │ Ar │ ▣C │ Ar │ Sp │ ▣C │    │  Ivory back rank
-    ├────┼────┼────┼────┼────┼────┼────┼────┼────┤  (the trebuchet starts
-  6 │    │    │ Sw │ Fl │ Rm │ Fl │ Sw │    │    │   on the middle castle)
-    ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
-  5 │    │    │    │    │    │    │    │    │    │
-    ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
-  4 │    │ ▲H │ ●W │ ●W │ ▲H │ ●W │ ●W │ ▲H │    │  hilltops and walls
-    ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
-  3 │    │    │    │    │    │    │    │    │    │
-    ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
-  2 │    │    │ Sw │ Fl │ Rm │ Fl │ Sw │    │    │
-    ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
-  1 │    │ ▣C │ Sp │ Ar │ ▣C │ Ar │ Sp │ ▣C │    │  Umber back rank
-    └────┴────┴────┴────┴────┴────┴────┴────┴────┘
+            a    b    c    d    e    f    g    h    i
+                                [F]                         Umber's Flank token
+         ┌────┬────┬────┬────┬────┬────┬────┬────┬────┐
+       7 │    │ ▣C │ Sp │ Ar │ ▣C │ Ar │ Sp │ ▣C │    │      Umber back row
+         ├────┼────┼────┼────┼────┼────┼────┼────┼────┤      (the trebuchet starts
+       6 │    │    │ Sw │ Fl │ Rm │ Fl │ Sw │    │    │       on the middle castle)
+         ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
+       5 │    │    │    │    │    │    │    │    │    │
+         ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
+  [A]  4 │    │ ▲H │ Rk │ Rk │ ▲H │ Rk │ Rk │ ▲H │    │ [A]  hilltops and rocks
+         ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
+       3 │    │    │    │    │    │    │    │    │    │
+         ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
+       2 │    │    │ Sw │ Fl │ Rm │ Fl │ Sw │    │    │
+         ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
+       1 │    │ ▣C │ Sp │ Ar │ ▣C │ Ar │ Sp │ ▣C │    │      Ivory back row
+         └────┴────┴────┴────┴────┴────┴────┴────┴────┘
+                                [F]                         Ivory's Flank token
 ```
 
-`Sp` spearman · `Ar` archer · `Sw` swordsman · `Fl` flail · `Rm` battering ram.
-The trebuchet (not shown) stands on each side's middle castle at e7 and e1. The
-outer files, a and i, carry no terrain and start empty — they are the room the
-armies have to work around the walls.
+`Sp` spearman · `Ar` archer · `Sw` swordsman · `Fl` flail · `Rm` battering ram ·
+`Rk` rock. The trebuchet (not shown) stands on each side's middle castle at e1
+and e7. `[A]` is a March token Attack side up — Umber's on the left edge, Ivory's
+on the right — and `[F]` a Flank token Move side up. The outer columns, a and i,
+carry no terrain and start empty: they are the room the armies have to work
+around the rocks.
 
 **Castles** are terrain, not pieces. They never move and never attack, and only
 a siege engine can destroy one. You may stand a piece on your own castle — the
-trebuchet opens the game doing exactly that — but never on an opponent's: an
-enemy castle stops a slide dead, and a piece may neither enter it nor pass
-through it. **A destroyed castle takes a hilltop token**, which turns the square
-into ordinary high ground that either side may occupy.
+trebuchet opens the game doing exactly that — but you cannot move onto an enemy
+castle space, nor through one. **If a castle is destroyed, it becomes a
+hilltop**, ordinary high ground either side may occupy.
 
-**Hilltops** are the three middle-row squares b4, e4 and h4, plus the rubble of
-every castle that has fallen. Castles and hilltops share files, which is what
-puts every castle exactly three squares from a hilltop.
+**Hilltops** are the three middle-row squares b4, e4 and h4, plus every castle
+that has been destroyed. Pieces can move onto hilltops. They mark where
+trebuchets can attack from: castles and hilltops share columns, which puts every
+castle exactly three squares from a hilltop.
 
-**Walls** are the four middle-row squares between the hilltops — c4, d4, f4 and
-g4. They belong to nobody. A standing wall stops a slide the way an enemy castle
-does: a piece may neither enter it nor pass through it. It stops nothing that is
-thrown. Any ordinary piece breaks a wall with a single shot, and the square is
-plain ground thereafter; siege engines cannot touch one. Each hilltop is walled
-in on the middle row, so the road to the high ground runs either around the
-walls or through the infantry that clears them.
+**Rocks** are neutral pieces on the four middle-row squares between the
+hilltops — c4, d4, f4 and g4 — and can be killed by your attacks. Like any
+piece, a rock stops a move: nothing may enter its square or pass through it.
+Siege engines only ever destroy castles, so it is the rest of an army that
+kills a rock, and the square is open ground thereafter. Each hilltop is walled
+in by rocks on the middle row, so the road to the high ground runs either around
+them or through the infantry that clears them.
 
 Ivory moves first.
 
-## Winning
+## Objective
 
-Accomplish either one:
+Win immediately by accomplishing either:
 
-* Destroy all three of your opponent's castles.
-* Eliminate both of your opponent's siege engines.
+* Destroy all 3 enemy castles.
+* Destroy both enemy siege engines.
 
-The second condition follows from the first: only siege engines damage castles,
-so a side with neither can no longer win, and the game is over rather than
-drawn out.
+The second condition follows from the first: only siege engines destroy
+castles, so a side with neither can no longer win, and the game is over rather
+than drawn out.
 
 If neither side has won after 300 turns the game is a draw. Nothing in the
 rules forces progress; the cap exists so that every line terminates.
 
 ## Command tokens
 
-Each side has two command tokens, and each token has two faces.
+Each side has two command tokens, and each token has a Move side and an Attack
+side.
 
-| Token | Rides | Movement face | Attack face |
+| Token | Rides | Move side | Attack side |
 |---|---|---|---|
-| Rank token | the left or right edge, naming a **rank** | move a piece from that rank **like a rook** | each piece of yours on that rank strikes one target |
-| File token | the top or bottom edge, naming a **file** | move a piece from that file **like a bishop** | each piece of yours on that file strikes one target |
+| March | the left or right edge, naming a **row** | **March**: move 1 piece in the row vertically or horizontally any number of spaces | attack with any number of your pieces in the row |
+| Flank | the top or bottom edge, naming a **column** | **Flank**: move 1 piece in the column diagonally any number of spaces | attack with any number of your pieces in the column |
 
-Ivory's tokens ride the left and top edges, Umber's the right and bottom. Both
-start showing their movement face.
+Each side's Flank token rides the edge beside its own back row, and its March
+token the edge to its right. Both sides start with the March token Attack side
+up on the middle row, row 4, and the Flank token Move side up on the middle
+column, column e.
 
-## A turn
+## Your turn
 
-**Your first turn.** Slide either command token to a new line, activate it, and
-flip it to its attack face.
+1. Slide the command token that is on its Move side to a new row or column.
+2. Activate one of your command tokens, then flip it over.
+3. Activate your other command token, then flip it over.
 
-**Every turn after.** Slide whichever token still shows its movement face, then
-activate and flip **both** tokens, in whatever order you choose.
+The first turn is played like every other. Because the tokens start on opposite
+sides and every turn flips both, exactly one token shows its Move side at the
+start of every turn, and the two take turns to be slid: the Flank token on a
+side's first turn, the March token on its second, and so on. **The token you
+slid last turn is the one that attacks this turn, from the line you put it
+on**: every Attack is announced a full turn before it is made, and the standard
+combination is to move a piece into a line you armed on the previous turn.
 
-A token must slide to a *different* line, and that line must hold at least one
-piece of yours. Castles do not count — they are terrain.
+A slide may go to any other line, whether or not it holds a piece of yours.
+Arming an empty line now and moving a piece onto it next turn is as good a plan
+as any.
 
-Because every turn flips both tokens, exactly one token shows a movement face at
-the start of each turn after the first. **The token you slid last turn is the
-one that fires this turn, from the line you put it on**: every attack is
-announced a full turn before it lands, and the standard combination is to move a
-piece into a line you armed on the previous turn.
-
-### Activating a movement face
+### March and Flank
 
 Choose one of your pieces on the named line and move it. The token decides which
-line the piece comes *from*; the move itself may carry it anywhere a rook or
-bishop could go, including out of that line. Moves never capture and never jump —
-a slide stops before any occupied square, friend or enemy. Castle squares are
-terrain and do not block.
+line the piece comes *from*; the move itself may carry it anywhere it can go
+vertically and horizontally, or diagonally, including out of that line. Moves
+never capture and never jump — a piece stops before any occupied square, friend,
+enemy or rock.
 
-You may also flip the token and take no action: a movement activation is never
-forced, and if no piece on the line has a legal move it passes anyway.
+You may also flip the token and take no action: a move is never forced, and if
+no piece on the line has a legal move the activation passes anyway.
 
-### Activating an attack face
+### Attack
 
-Every piece of yours on the named line may attack, and **each one strikes a
-single target**. Work along the line: every piece with something in range picks
-one square to hit, or holds its fire. Shots land as they are chosen, so a piece
-further down the line cannot spend itself on a target an earlier one has already
-taken. **Attackers do not move.** Nothing blocks an attack — a spearman strikes
-over the square in front of it.
+**Pieces do not move when attacking.** When an Attack is issued to a row or
+column, each of your pieces in it may kill one piece in its Attack Zone. Work
+along the line: every piece with something in its zone picks one target, or
+holds its fire. Targets are taken as they are chosen, so a piece further down
+the line cannot spend itself on one an earlier attacker has already killed.
+Nothing blocks an attack — a spearman reaches over the square in front of it.
 
-Ordinary pieces destroy enemy *pieces* and *walls*, and never damage a castle.
-Siege engines destroy enemy *castles* and never touch a piece or a wall.
-Friendly pieces are never hit.
+Ordinary pieces kill enemy pieces and rocks, and never damage a castle. Siege
+engines destroy enemy castles and never touch a piece. Your own pieces are never
+hit.
 
-## Attacks
+## Attack Zones
 
-Relative to the piece, `X` marks what it strikes.
+Relative to the piece, `X` marks its Attack Zone.
 
 ```
    swordsman        flail          spearman         archer
@@ -135,58 +146,53 @@ Relative to the piece, `X` marks what it strikes.
 * **Flail** — the four squares diagonally adjacent.
 * **Spearman** — two squares away, orthogonally.
 * **Archer** — two squares away, diagonally.
-* **Trebuchet** — castles exactly three squares away, straight or diagonal, and
-  only while it stands on a hilltop. Off a hilltop it throws nothing.
-* **Battering Ram** — a castle one square away, straight only.
+* **Trebuchet** — destroys a castle that is 3 spaces away, vertically,
+  horizontally or diagonally.
+* **Battering Ram** — destroys a castle that is 1 space away vertically or
+  horizontally.
 
-A wall counts as a target for the first four and for neither siege engine, on
-exactly the squares each pattern already covers.
+The hilltops need no rule of their own to be where a trebuchet attacks from.
+Every square three spaces from a castle is a hilltop or another castle, and a
+trebuchet can only stand on an enemy castle once it has been destroyed — when it
+has become a hilltop.
 
 From the centre hilltop a trebuchet bears on *every* castle on the board — and
-brings down one of them a turn, since a piece strikes a single target. That
-makes e4 the sharpest square in the game and the trebuchet's approach the thing
-both sides are really playing around — and the walls at d4 and f4 mean no rook
-move along rank 4 reaches it until one of them is broken. A castle that falls
-hands back high ground: raze the outer castle at b1 and a trebuchet standing in
-its rubble bears on e1, three squares along the back rank.
+brings down one of them a turn, since a piece takes a single target. That makes
+e4 the sharpest square in the game and the trebuchet's approach the thing both
+sides are really playing around — and the rocks on d4 and f4 mean no March along
+row 4 reaches it until one of them is killed. A castle that falls hands back high
+ground: destroy Umber's outer castle on b7 and a trebuchet standing there bears
+on e7, three squares along the back row.
 
 ## Interpretations
 
-The printed rules leave a few things unstated. Where a reading had to be
-chosen, this is the one the engine implements:
+The rules sheet leaves a few things unstated. Where a reading had to be chosen,
+this is the one the engine implements:
 
-* **Castles are terrain.** The rules text says three castles and the printed
-  board draws two per side — but the back-rank middle square is shaded like the
-  outer two and holds the trebuchet. Castles therefore sit on the back rank at
-  files b, e and h, and the trebuchet starts standing on the middle one.
-* **The printed hilltops are the middle row only.** Only from there can a
-  trebuchet reach an enemy castle at range three at the start of a game, so
-  back-rank hilltops would be decorative until a castle falls on one.
-* **An enemy castle blocks a slide entirely.** "You cannot move on to an
-  opponent's castle" is read as an obstacle rather than a forbidden
-  destination: a slide stops before it, the way it stops before a piece.
-* **A slide must change lines.** "Slide the movement token" is read as requiring
-  actual movement. If a side's every piece sits on its token's current line it
-  has no legal destination; rather than deadlock, the token holds its line.
+* **The opening tokens come from the board diagram.** The sheet's text never
+  says where the tokens start; its board shows the March tokens Attack side up
+  beside the middle row and the Flank tokens Move side up beside the middle
+  column. That is also the only kind of opening in which "the token on its Move
+  side" names a single token from the very first turn.
+* **Castles are terrain.** The sheet says three castles and its board draws two
+  per side — but the back-row middle square is shaded like the outer two and
+  holds the trebuchet. Castles therefore sit on the back row in columns b, e
+  and h, and the trebuchet starts standing on the middle one.
+* **An enemy castle blocks a move entirely.** "You cannot move onto an enemy
+  Castle space" is read as an obstacle rather than a forbidden destination: a
+  move stops before it, the way it stops before a piece.
 * **Moves never capture.** "Pieces do not move when attacking" is read as the
-  converse too: movement and attack are separate, and a piece may not be taken
+  converse too: moving and attacking are separate, and a piece may not be taken
   by being moved onto.
+* **Moving is optional.** The sheet does not say whether a Move side may be
+  flipped without moving; an earlier edition said it may, and so it may.
 * **The trebuchet's range is exactly three**, not up to three.
-* **Shots land as they are chosen.** The attackers on a line fire in order
-  along it rather than all at once. The set of outcomes is the same either way —
-  doubling two attackers onto one victim only ever wastes a shot — but resolving
-  in order means a later attacker is never offered a target that is already
-  gone.
-* **Walls fall to the infantry alone.** A wall is neither a piece nor a castle,
-  so the rule that splits those two targets does not say which weapons break
-  one. Reading it as the ordinary pieces' business keeps the siege train
-  strictly anti-castle, and makes clearing a lane to a hilltop something an army
-  has to spend an ordinary activation on rather than something a ram does in
-  passing.
-* **A wall blocks movement only.** "The walls block movement" is read against
-  the standing rule that nothing blocks an attack: a spearman strikes over a
-  wall exactly as it strikes over an occupied square.
-* **Holding fire is a choice, one attacker at a time.** "You may also flip the
-  token and take no action" is read as covering each piece in a volley
-  separately, so an enemy piece may be spared deliberately — worth doing when it
-  is blocking a line you want kept shut.
+* **Targets are taken as they are chosen.** The attackers on a line act in
+  order along it rather than all at once. The set of outcomes is the same either
+  way — doubling two attackers onto one victim only ever wastes an attack — but
+  resolving in order means a later attacker is never offered a target that is
+  already gone.
+* **Your own pieces are never hit.** "It may kill one piece that is in its
+  Attack Zone" does not say an enemy piece, but the separate rule that rocks can
+  be killed would say nothing if any piece could be.
+* **Ivory moves first.** The sheet does not say who starts.

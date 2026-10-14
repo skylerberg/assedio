@@ -1,5 +1,5 @@
 [workspace]
-members = ["command-slide-core", "command-slide-wasm", "command-slide-runner"]
+members = ["assedio-core", "assedio-wasm", "assedio-runner"]
 resolver = "2"
 
 [workspace.dependencies]

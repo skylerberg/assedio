@@ -1,10 +1,10 @@
 [package]
-name = "command-slide-runner"
+name = "assedio-runner"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-command-slide-core = { path = "../command-slide-core", features = ["time"] }
+assedio-core = { path = "../assedio-core", features = ["time"] }
 mcts.workspace = true
 mcts-tune.workspace = true
 serde.workspace = true

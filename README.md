@@ -1,9 +1,9 @@
-# Command Slide
+# Assedio
 
-A playable implementation of Command Slide — a two-player siege game on a board
-nine files across and seven ranks deep — with a browser interface and an
-opponent driven by Monte Carlo tree search. The complete rules, including every reading chosen where the printed
-rules were silent, are in [RULES.md](RULES.md).
+A playable implementation of Assedio — a two-player siege game on a board nine
+columns across and seven rows deep — with a browser interface and an opponent
+driven by Monte Carlo tree search. The complete rules, including every reading
+chosen where the rules sheet is silent, are in [RULES.md](RULES.md).
 
 ## Running it
 
@@ -21,11 +21,11 @@ Requires a Rust toolchain with the `wasm32-unknown-unknown` target, and
 ## Deploying
 
 `.github/workflows/deploy.yml` builds the site on every push to `main` and
-publishes it to GitHub Pages at `https://skylerberg.github.io/command-slide/`.
+publishes it to GitHub Pages at `https://skylerberg.github.io/assedio/`.
 Nothing about the engine is configured here: `mcts` is a git dependency pinned
 in the workspace `Cargo.toml`, so the workflow builds the commit that names.
-Vite's `base` is pinned to `/command-slide/` to match the project-page URL;
-serving from anywhere else means changing it.
+Vite's `base` is relative, so the built site works from whatever path it is
+served under — the project page, a renamed repository, or a local preview.
 
 Enable it under *Settings → Pages* by setting the source to *GitHub Actions*.
 
@@ -33,18 +33,18 @@ Enable it under *Settings → Pages* by setting the source to *GitHub Actions*.
 
 A Rust workspace and a Svelte frontend:
 
-* `command-slide-core/` — the whole game engine: board, rules, turn resolution,
+* `assedio-core/` — the whole game engine: board, rules, turn resolution,
   the `mcts::Game` implementation and the evaluation the search leans on.
-* `command-slide-wasm/` — `wasm-bindgen` bindings. Every function takes and
+* `assedio-wasm/` — `wasm-bindgen` bindings. Every function takes and
   returns JSON, so TypeScript never mirrors a Rust memory layout.
-* `command-slide-runner/` — CLI for batch simulation, replay and benchmarking.
+* `assedio-runner/` — CLI for batch simulation, replay and benchmarking.
 * `src/` — Svelte 5 + TypeScript frontend.
   * `src/data/` — TypeScript mirror of the wire format, plus the log formatter.
   * `src/engine/` — the wasm loader and its wrappers.
   * `src/ai/` — the worker the search runs in, and the controller driving it.
   * `src/components/` — board, panels, rules sheet, menu.
 
-Every rule lives in `command-slide-core`. The frontend asks the engine for legal
+Every rule lives in `assedio-core`. The frontend asks the engine for legal
 choices and never decides anything about the game itself.
 
 ## The AI
@@ -71,15 +71,15 @@ nearest hilltop and a ram's from the nearest castle, and squashes the difference
 into `[0, 1]` — which is what gives the search a gradient to climb.
 
 Search runs at roughly 600k iterations a second natively at a small budget,
-falling towards 425k as the tree grows. Every difficulty but the top one
-answers inside a second in the browser; the top one trades a few seconds of
-thinking for the strength.
+falling below 300k by the half-million iterations of the top difficulty. Every
+difficulty but the top one answers inside a second in the browser; the top one
+trades a few seconds of thinking for the strength.
 
 ## Checking it
 
 ```sh
-cargo test                                    # 36 engine tests
-pnpm test                                      # 18 frontend tests
+cargo test                                     # engine, wire format, tuner
+pnpm test                                      # log formatter and TS helpers
 pnpm run check                                 # svelte-check
 
 pnpm run run-games -- bench                    # search throughput
@@ -89,15 +89,15 @@ pnpm run run-games -- simulate --games 40 --iterations-a 20000 --iterations-b 30
 pnpm run run-games -- tune --generations 50   # search the evaluation weights
 ```
 
-`cargo test` covers each attack pattern against the printed diagrams, the turn
+`cargo test` covers each Attack Zone against the printed diagrams, the turn
 and token-flip structure, both win conditions, and the JSON wire format the
 browser reads — a rename on the Rust side fails a test rather than breaking the
 UI silently at runtime.
 
 `simulate` is how any change to the evaluation gets judged: play the new numbers
 against the old and count. The search scales monotonically with its budget —
-3k iterations beats 200 by 85%, and 20k beats 3k outright — which is the signal
-that it is doing real work. Weights load from a file with `--params-a`, which is
+3k iterations beats 200 in two games of three, and 20k beats 3k in four of
+five — which is the signal that it is doing real work. Weights load from a file with `--params-a`, which is
 how a tuning run's output gets confirmed.
 
 ## Tuning the weights
@@ -167,13 +167,13 @@ browser's higher difficulties never play in.
 
 ## A note on the game
 
-Games are short. Under equal search both sides reach a verdict in seven or eight
-turns, and most of them end by eliminating a side's siege engines rather than by
-razing castles — a piece strikes one target per volley, so three castles take at
-least three turns to bring down, while two siege engines can be picked off much
-sooner. The trebuchet is still what both sides play around: castles and hilltops
-share files, so from the centre hilltop it bears on every castle on the board
-and takes one a turn. The counterplay is the telegraph — a token is slid a full
-turn before it fires, so an approach can be seen and answered — and the walls,
-which pen every hilltop in on the middle rank and cannot be broken by the siege
-train that wants to stand there.
+Games are short. Under equal search a game reaches a verdict in about eleven
+turns, and nearly all of them end by destroying a side's siege engines rather
+than its castles — an attacker takes one target per Attack, so three castles
+take at least three turns to bring down, while two siege engines can be picked
+off much sooner. The trebuchet is still what both sides play around: castles and
+hilltops share columns, so from the centre hilltop it bears on every castle on
+the board and takes one a turn. The counterplay is the telegraph — a token is
+slid a full turn before it attacks, so an approach can be seen and answered —
+and the rocks, which wall every hilltop in on the middle row and cannot be
+killed by the siege train that wants to stand there.

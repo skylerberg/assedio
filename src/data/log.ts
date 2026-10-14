@@ -1,13 +1,15 @@
 // Turns engine events into the sentences shown in the sidebar.
 
-import { BOARD_ROWS, FILE_LETTERS, PIECE_NAMES, PLAYER_NAMES, pieceAt } from './types'
+import { COLUMN_LETTERS, PIECE_NAMES, PLAYER_NAMES, TOKEN_NAMES, pieceAt } from './types'
 import type {
   Casualty,
   GameEvent,
   GameState,
   MoveOutcome,
+  Piece,
   SlideOutcome,
   Square,
+  Threat,
   TokenKind,
 } from './types'
 
@@ -18,28 +20,26 @@ export interface LogEntry {
   grave?: boolean
 }
 
-/** Files run a-i left to right; ranks run 7-1 from the top row down. */
+/** Columns run a-i and rows 1-7 up from Ivory's back row, as the rules sheet
+    draws the board. */
 export function squareName(square: Square): string {
-  return `${FILE_LETTERS[square.col]}${BOARD_ROWS - square.row}`
+  return `${COLUMN_LETTERS[square.col]}${square.row + 1}`
 }
 
 export function lineName(kind: TokenKind, line: number): string {
-  return kind === 'row' ? `rank ${BOARD_ROWS - line}` : `file ${FILE_LETTERS[line]}`
+  return kind === 'march' ? `row ${line + 1}` : `column ${COLUMN_LETTERS[line]}`
 }
 
-function tokenName(kind: TokenKind): string {
-  return kind === 'row' ? 'rank' : 'file'
+function pieceName(piece: Piece, square: Square): string {
+  return piece.kind === 'rock'
+    ? `the rock on ${squareName(square)}`
+    : `${PIECE_NAMES[piece.kind]} ${squareName(square)}`
 }
 
 function describeCasualty(casualty: Casualty, target: Square): string {
-  switch (casualty.type) {
-    case 'castle':
-      return `the castle on ${squareName(target)}`
-    case 'wall':
-      return `the wall on ${squareName(target)}`
-    case 'piece':
-      return `${PIECE_NAMES[casualty.piece.kind]} on ${squareName(target)}`
-  }
+  return casualty.type === 'castle'
+    ? `destroys the castle on ${squareName(target)}`
+    : `kills ${pieceName(casualty.piece, target)}`
 }
 
 export function describeEvent(event: GameEvent): LogEntry | null {
@@ -47,31 +47,31 @@ export function describeEvent(event: GameEvent): LogEntry | null {
     case 'slid':
       return {
         player: event.player,
-        text: `slides the ${tokenName(event.token)} token to ${lineName(event.token, event.to)}`,
+        text: `slides the ${TOKEN_NAMES[event.token]} token to ${lineName(event.token, event.to)}`,
       }
-    case 'moved':
+    case 'moved': {
+      const verb = event.token === 'march' ? 'marches' : 'flanks'
       return {
         player: event.player,
-        text: `${PIECE_NAMES[event.kind]} ${squareName(event.from)} → ${squareName(event.to)}`,
+        text: `${verb} ${PIECE_NAMES[event.kind]} ${squareName(event.from)} → ${squareName(event.to)}`,
       }
+    }
     case 'passed':
       return {
         player: event.player,
-        text: `takes no action with the ${tokenName(event.token)} token`,
+        text: `takes no action with the ${TOKEN_NAMES[event.token]} token`,
       }
-    case 'volley':
+    case 'attacked':
       return {
         player: event.player,
-        text: `volleys along ${lineName(event.token, event.line)}`,
+        text: `attacks along ${lineName(event.token, event.line)}`,
       }
-    case 'struck': {
-      const victim = describeCasualty(event.casualty, event.target)
+    case 'struck':
       return {
         player: event.player,
-        text: `${PIECE_NAMES[event.kind]} ${squareName(event.from)} destroys ${victim}`,
+        text: `${PIECE_NAMES[event.kind]} ${squareName(event.from)} ${describeCasualty(event.casualty, event.target)}`,
         grave: true,
       }
-    }
     case 'heldFire':
       return {
         player: event.player,
@@ -102,18 +102,14 @@ function joinList(items: string[]): string {
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
 }
 
-/** Names what stands on each square, for a sentence about shooting at it. */
-function targetNames(
-  state: GameState,
-  reach: { threatenedPieces: Square[]; threatenedCastles: Square[]; threatenedWalls: Square[] },
-): string[] {
+/** Names what stands on each square, for a sentence about attacking it. */
+function targetNames(state: GameState, threat: Threat): string[] {
   return [
-    ...reach.threatenedPieces.map((square) => {
+    ...threat.threatenedPieces.map((square) => {
       const piece = pieceAt(state, square)
-      return piece ? `${PIECE_NAMES[piece.kind]} ${squareName(square)}` : squareName(square)
+      return piece ? pieceName(piece, square) : squareName(square)
     }),
-    ...reach.threatenedCastles.map((square) => `the castle on ${squareName(square)}`),
-    ...reach.threatenedWalls.map((square) => `the wall on ${squareName(square)}`),
+    ...threat.threatenedCastles.map((square) => `the castle on ${squareName(square)}`),
   ]
 }
 
@@ -122,7 +118,7 @@ export function describeMoveOutcome(state: GameState, outcome: MoveOutcome): str
   const journey = `${squareName(outcome.from)} → ${squareName(outcome.to)}`
   const targets = targetNames(state, outcome)
   if (targets.length === 0) return `${journey}.`
-  return `${journey}, and your volley then bears on ${joinList(targets)}.`
+  return `${journey}, and your Attack then bears on ${joinList(targets)}.`
 }
 
 /** The sentence under the board while a slide destination is under the cursor. */
@@ -133,9 +129,9 @@ export function describeSlideOutcome(state: GameState, outcome: SlideOutcome): s
       ? `Nothing on ${where} could move`
       : `${outcome.movers.length} piece${outcome.movers.length === 1 ? '' : 's'} on ${where} could move`
   const targets = targetNames(state, outcome)
-  const volley =
+  const attack =
     targets.length === 0
-      ? 'next turn the volley there bears on nothing, as the board stands'
-      : `next turn the volley there bears on ${joinList(targets)}, as the board stands`
-  return `${movers}; ${volley}.`
+      ? 'next turn the Attack there bears on nothing, as the board stands'
+      : `next turn the Attack there bears on ${joinList(targets)}, as the board stands`
+  return `${movers}; ${attack}.`
 }

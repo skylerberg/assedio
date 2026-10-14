@@ -10,7 +10,7 @@ import init, {
   wasm_move_outcomes,
   wasm_pending_attackers,
   wasm_slide_outcomes,
-} from '../wasm-pkg/command_slide_wasm.js'
+} from '../wasm-pkg/assedio_wasm.js'
 import type {
   AttackPreview,
   Choice,
@@ -72,7 +72,7 @@ export function slideOutcomes(state: GameState): SlideOutcome[] {
   return JSON.parse(wasm_slide_outcomes(JSON.stringify(state)))
 }
 
-/** The attackers of the volley in progress that have still to fire. */
+/** The attackers of the Attack in progress that have still to choose. */
 export function pendingAttackers(state: GameState): Square[] {
   return JSON.parse(wasm_pending_attackers(JSON.stringify(state)))
 }
