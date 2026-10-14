@@ -91,12 +91,7 @@ impl EvalParams {
 
 /// Standing enemy castles a piece of `kind` on `from` would hit right now.
 pub fn castles_in_range(state: &GameState, from: Square, enemy: u8, kind: PieceKind) -> usize {
-    kind.attack_zone()
-        .iter()
-        .filter_map(|&(drow, dcol)| from.offset(drow, dcol))
-        .filter_map(GameState::castle_slot_at)
-        .filter(|&(owner, index)| owner == enemy && state.castles[owner as usize][index])
-        .count()
+    (kind.zone_mask(from) & state.standing_castles(enemy)).count_ones() as usize
 }
 
 /// A destroyed castle becomes a hilltop, so the set a trebuchet is walking

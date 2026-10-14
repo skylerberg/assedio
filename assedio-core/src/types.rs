@@ -1,9 +1,10 @@
 //! Board geometry, pieces, command tokens, and the game state they live in.
 //!
 //! `GameState` is `Copy` on purpose: the search clones one per determinization
-//! and per rollout step, and a memcpy of ~150 bytes is cheaper than anything
-//! that chases a pointer. That is why the board is a fixed array and the
-//! activation queue is an array plus a length rather than a `Vec`.
+//! and per rollout step, and a memcpy of under 200 bytes is cheaper than
+//! anything that chases a pointer. That is why the board is a fixed array with
+//! its occupancy kept as bitboards beside it, and the activation queue is an
+//! array plus a length rather than a `Vec`.
 
 use serde::{Deserialize, Serialize};
 
@@ -12,6 +13,7 @@ use serde::{Deserialize, Serialize};
 /// middle row room for the rocks.
 pub const BOARD_ROWS: usize = 7;
 pub const BOARD_COLS: usize = 9;
+pub const BOARD_SQUARES: usize = BOARD_ROWS * BOARD_COLS;
 pub const NUM_PLAYERS: usize = 2;
 pub const CASTLES_PER_PLAYER: usize = 3;
 
@@ -36,6 +38,97 @@ pub const ROCK_COLS: [u8; 4] = [2, 3, 5, 6];
 /// Turns each side may take before the game is called a draw. Nothing in the
 /// rules forces progress, and a search needs every line to terminate.
 pub const MAX_TURNS: u32 = 300;
+
+/// One bit per square, in [`Square::index`] order. The board has 63 squares,
+/// so a whole-board set is one `u64` and set arithmetic is one instruction.
+pub type Bitboard = u64;
+
+/// The squares in `bits`, in [`Square::index`] order.
+pub fn squares_of(mut bits: Bitboard) -> impl Iterator<Item = Square> {
+    std::iter::from_fn(move || {
+        (bits != 0).then(|| {
+            let index = bits.trailing_zeros() as usize;
+            bits &= bits - 1;
+            Square::from_index(index)
+        })
+    })
+}
+
+const fn square_bit(row: usize, col: usize) -> Bitboard {
+    1 << (row * BOARD_COLS + col)
+}
+
+const fn line_masks() -> [[Bitboard; BOARD_COLS]; 2] {
+    let mut masks = [[0; BOARD_COLS]; 2];
+    let mut row = 0;
+    while row < BOARD_ROWS {
+        let mut col = 0;
+        while col < BOARD_COLS {
+            masks[TokenKind::March.index()][row] |= square_bit(row, col);
+            masks[TokenKind::Flank.index()][col] |= square_bit(row, col);
+            col += 1;
+        }
+        row += 1;
+    }
+    masks
+}
+
+const LINE_MASKS: [[Bitboard; BOARD_COLS]; 2] = line_masks();
+
+const fn zone_masks(kind: PieceKind) -> [Bitboard; BOARD_SQUARES] {
+    let zone = kind.attack_zone();
+    let mut masks = [0; BOARD_SQUARES];
+    let mut index = 0;
+    while index < BOARD_SQUARES {
+        let mut i = 0;
+        while i < zone.len() {
+            let row = (index / BOARD_COLS) as i8 + zone[i].0;
+            let col = (index % BOARD_COLS) as i8 + zone[i].1;
+            if row >= 0 && row < BOARD_ROWS as i8 && col >= 0 && col < BOARD_COLS as i8 {
+                masks[index] |= square_bit(row as usize, col as usize);
+            }
+            i += 1;
+        }
+        index += 1;
+    }
+    masks
+}
+
+/// Indexed by `PieceKind as usize`, then by square.
+const ZONE_MASKS: [[Bitboard; BOARD_SQUARES]; 7] = [
+    zone_masks(PieceKind::Swordsman),
+    zone_masks(PieceKind::Flail),
+    zone_masks(PieceKind::Spearman),
+    zone_masks(PieceKind::Archer),
+    zone_masks(PieceKind::Trebuchet),
+    zone_masks(PieceKind::BatteringRam),
+    zone_masks(PieceKind::Rock),
+];
+
+const NATURAL_HILLTOPS: Bitboard = square_bit(HILLTOP_ROW as usize, HILLTOP_COLS[0] as usize)
+    | square_bit(HILLTOP_ROW as usize, HILLTOP_COLS[1] as usize)
+    | square_bit(HILLTOP_ROW as usize, HILLTOP_COLS[2] as usize);
+
+const NO_CASTLE: u8 = u8::MAX;
+
+/// For each square, `owner * CASTLES_PER_PLAYER + index` of the castle slot it
+/// holds, or [`NO_CASTLE`].
+const fn castle_slots() -> [u8; BOARD_SQUARES] {
+    let mut slots = [NO_CASTLE; BOARD_SQUARES];
+    let mut owner = 0;
+    while owner < NUM_PLAYERS {
+        let mut index = 0;
+        while index < CASTLES_PER_PLAYER {
+            let square = BACK_ROW[owner] as usize * BOARD_COLS + CASTLE_COLS[index] as usize;
+            slots[square] = (owner * CASTLES_PER_PLAYER + index) as u8;
+            index += 1;
+        }
+        owner += 1;
+    }
+    slots
+}
+
+const CASTLE_SLOTS: [u8; BOARD_SQUARES] = castle_slots();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,7 +163,7 @@ const RAM_ZONE: [(i8, i8); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 impl PieceKind {
     /// The piece's Attack Zone, relative to where it stands. Nothing blocks an
     /// attack: a spearman reaches over the square between it and its target.
-    pub fn attack_zone(self) -> &'static [(i8, i8)] {
+    pub const fn attack_zone(self) -> &'static [(i8, i8)] {
         match self {
             PieceKind::Swordsman => &SWORDSMAN_ZONE,
             PieceKind::Flail => &FLAIL_ZONE,
@@ -80,6 +173,12 @@ impl PieceKind {
             PieceKind::BatteringRam => &RAM_ZONE,
             PieceKind::Rock => &[],
         }
+    }
+
+    /// The on-board squares of the piece's Attack Zone from `from`.
+    #[inline]
+    pub fn zone_mask(self, from: Square) -> Bitboard {
+        ZONE_MASKS[self as usize][from.index()]
     }
 
     /// Siege engines destroy castles and nothing else; every other piece kills
@@ -117,8 +216,19 @@ impl Square {
         on_board.then(|| Square::new(row as u8, col as u8))
     }
 
+    #[inline]
     pub fn index(self) -> usize {
         self.row as usize * BOARD_COLS + self.col as usize
+    }
+
+    #[inline]
+    pub fn from_index(index: usize) -> Square {
+        Square::new((index / BOARD_COLS) as u8, (index % BOARD_COLS) as u8)
+    }
+
+    #[inline]
+    pub fn bit(self) -> Bitboard {
+        1 << self.index()
     }
 
     pub fn chebyshev(self, other: Square) -> u8 {
@@ -144,7 +254,7 @@ pub enum TokenKind {
 pub const TOKEN_KINDS: [TokenKind; 2] = [TokenKind::March, TokenKind::Flank];
 
 impl TokenKind {
-    pub fn index(self) -> usize {
+    pub const fn index(self) -> usize {
         match self {
             TokenKind::March => 0,
             TokenKind::Flank => 1,
@@ -226,11 +336,79 @@ pub enum Outcome {
     Draw,
 }
 
+/// Every piece on the board, the neutral rocks included, with each owner's
+/// squares kept beside them as a bitboard. "Any piece of mine on this line" and
+/// "anything to take in this zone" are then a mask and a compare rather than a
+/// walk over squares.
+///
+/// Serialized as rows of cells, so the wire format never sees the bitboards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Board {
+    cells: [Option<Piece>; BOARD_SQUARES],
+    /// Indexed by owner: each player, then [`NEUTRAL`].
+    occupied_by: [Bitboard; NUM_PLAYERS + 1],
+}
+
+impl Board {
+    pub const EMPTY: Board = Board {
+        cells: [None; BOARD_SQUARES],
+        occupied_by: [0; NUM_PLAYERS + 1],
+    };
+
+    #[inline]
+    pub fn get(&self, square: Square) -> Option<Piece> {
+        self.cells[square.index()]
+    }
+
+    #[inline]
+    pub fn set(&mut self, square: Square, piece: Option<Piece>) {
+        if let Some(old) = self.cells[square.index()] {
+            self.occupied_by[old.owner as usize] &= !square.bit();
+        }
+        if let Some(new) = piece {
+            self.occupied_by[new.owner as usize] |= square.bit();
+        }
+        self.cells[square.index()] = piece;
+    }
+
+    /// The squares holding `owner`'s pieces: a player's, or [`NEUTRAL`]'s rocks.
+    #[inline]
+    pub fn occupied_by(&self, owner: u8) -> Bitboard {
+        self.occupied_by[owner as usize]
+    }
+
+    #[inline]
+    pub fn occupied(&self) -> Bitboard {
+        self.occupied_by.iter().fold(0, |all, &owned| all | owned)
+    }
+}
+
+impl Serialize for Board {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut rows = [[None; BOARD_COLS]; BOARD_ROWS];
+        for (index, cell) in self.cells.iter().enumerate() {
+            rows[index / BOARD_COLS][index % BOARD_COLS] = *cell;
+        }
+        rows.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Board {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let rows = <[[Option<Piece>; BOARD_COLS]; BOARD_ROWS]>::deserialize(deserializer)?;
+        let mut board = Board::EMPTY;
+        for (index, &cell) in rows.as_flattened().iter().enumerate() {
+            board.set(Square::from_index(index), cell);
+        }
+        Ok(board)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameState {
     /// Every piece on the board, the neutral rocks included.
-    pub board: [[Option<Piece>; BOARD_COLS]; BOARD_ROWS],
+    pub board: Board,
     /// `castles[player][i]` is whether the castle on `CASTLE_COLS[i]` still
     /// stands. Castles are terrain, not pieces: they never move, never attack,
     /// and a piece may stand on its own.
@@ -253,12 +431,14 @@ pub struct GameState {
 }
 
 impl GameState {
+    #[inline]
     pub fn piece_at(&self, square: Square) -> Option<Piece> {
-        self.board[square.row as usize][square.col as usize]
+        self.board.get(square)
     }
 
+    #[inline]
     pub fn set_piece(&mut self, square: Square, piece: Option<Piece>) {
-        self.board[square.row as usize][square.col as usize] = piece;
+        self.board.set(square, piece);
     }
 
     pub fn token(&self, player: u8, kind: TokenKind) -> Token {
@@ -308,6 +488,12 @@ impl GameState {
         (0..Self::line_len(kind)).map(move |index| Self::line_square(kind, line, index))
     }
 
+    /// The squares of `line`, as a bitboard.
+    #[inline]
+    pub fn line_mask(kind: TokenKind, line: u8) -> Bitboard {
+        LINE_MASKS[kind.index()][line as usize]
+    }
+
     /// The `index`th square of `line`, counting along the line.
     pub fn line_square(kind: TokenKind, line: u8, index: u8) -> Square {
         match kind {
@@ -318,7 +504,7 @@ impl GameState {
 
     /// One of the three hilltops printed on the board.
     pub fn is_natural_hilltop(square: Square) -> bool {
-        square.row == HILLTOP_ROW && HILLTOP_COLS.contains(&square.col)
+        NATURAL_HILLTOPS & square.bit() != 0
     }
 
     /// A hilltop as the board stands: one of the printed three, or a castle
@@ -352,10 +538,22 @@ impl GameState {
 
     /// The castle slot `square` belongs to, if any, as `(owner, index)`.
     /// Reports the slot whether or not that castle still stands.
+    #[inline]
     pub fn castle_slot_at(square: Square) -> Option<(u8, usize)> {
-        let owner = BACK_ROW.iter().position(|&r| r == square.row)? as u8;
-        let index = CASTLE_COLS.iter().position(|&c| c == square.col)?;
-        Some((owner, index))
+        let slot = CASTLE_SLOTS[square.index()];
+        (slot != NO_CASTLE).then(|| {
+            let owner = slot / CASTLES_PER_PLAYER as u8;
+            (owner, slot as usize % CASTLES_PER_PLAYER)
+        })
+    }
+
+    /// `owner`'s standing castles, as a bitboard.
+    pub fn standing_castles(&self, owner: u8) -> Bitboard {
+        (0..CASTLES_PER_PLAYER)
+            .filter(|&index| self.castles[owner as usize][index])
+            .fold(0, |castles, index| {
+                castles | Self::castle_square(owner, index).bit()
+            })
     }
 
     pub fn castle_square(owner: u8, index: usize) -> Square {
@@ -367,12 +565,20 @@ impl GameState {
     }
 
     pub fn pieces(&self) -> impl Iterator<Item = (Square, Piece)> + '_ {
-        Self::squares().filter_map(|square| self.piece_at(square).map(|piece| (square, piece)))
+        self.pieces_on(self.board.occupied())
     }
 
     pub fn pieces_of(&self, player: u8) -> impl Iterator<Item = (Square, Piece)> + '_ {
-        self.pieces()
-            .filter(move |(_, piece)| piece.owner == player)
+        self.pieces_on(self.board.occupied_by(player))
+    }
+
+    fn pieces_on(&self, squares: Bitboard) -> impl Iterator<Item = (Square, Piece)> + '_ {
+        squares_of(squares).map(|square| {
+            let piece = self
+                .piece_at(square)
+                .expect("a square in an occupancy bitboard holds a piece");
+            (square, piece)
+        })
     }
 
     pub fn siege_engines(&self, player: u8) -> usize {

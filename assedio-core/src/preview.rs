@@ -296,7 +296,7 @@ mod tests {
     /// exactly the position it means. Castles and tokens are left as dealt.
     fn empty_board() -> GameState {
         let mut state = initial_state();
-        state.board = [[None; BOARD_COLS]; BOARD_ROWS];
+        state.board = Board::EMPTY;
         state
     }
 
