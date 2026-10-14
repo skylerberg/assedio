@@ -1,7 +1,9 @@
 //! Browser bindings. Every function takes and returns JSON so the TypeScript
 //! side never has to mirror a Rust memory layout.
 
-use assedio_core::preview::{forced_order, move_outcomes, pending_attackers, slide_outcomes};
+use assedio_core::preview::{
+    attack_shots, forced_order, move_outcomes, pending_attackers, piece_reach, slide_outcomes,
+};
 use assedio_core::rand_core::SeedableRng;
 use assedio_core::rules::{apply_logged, attack_preview, GameEvent};
 use assedio_core::search::{Ai, AiConfig};
@@ -118,6 +120,22 @@ pub fn wasm_slide_outcomes(state_json: &str) -> String {
 #[wasm_bindgen]
 pub fn wasm_pending_attackers(state_json: &str) -> String {
     to_json(&pending_attackers(&parse_state(state_json)))
+}
+
+/// The Attack Zone of the piece on a square and what it could take, or `null`
+/// for an empty square.
+#[wasm_bindgen]
+pub fn wasm_piece_reach(state_json: &str, square_json: &str) -> String {
+    let square: Square = serde_json::from_str(square_json).expect("failed to parse square");
+    to_json(&piece_reach(&parse_state(state_json), square))
+}
+
+/// Each attacker an Attack along this player's token's line would ask for a
+/// target, with everything it could take.
+#[wasm_bindgen]
+pub fn wasm_attack_shots(state_json: &str, player: u8, token_json: &str) -> String {
+    let token: TokenKind = serde_json::from_str(token_json).expect("failed to parse token");
+    to_json(&attack_shots(&parse_state(state_json), player, token))
 }
 
 /// One search for the single decision in front of the player.

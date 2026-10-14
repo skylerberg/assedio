@@ -1,4 +1,7 @@
 <script lang="ts">
+  import Legend from './Legend.svelte'
+  import type { LegendEntry } from './Legend.svelte'
+  import Modal from './Modal.svelte'
   import PieceIcon from './PieceIcon.svelte'
   import TerrainIcon from './TerrainIcon.svelte'
   import TokenIcon from './TokenIcon.svelte'
@@ -13,338 +16,369 @@
 
   const FIGHTERS: PieceKind[] = ['swordsman', 'flail', 'spearman', 'archer']
   const RANGE = [-2, -1, 0, 1, 2]
+  const KEYS: LegendEntry[] = [
+    { key: 'slide', tone: 'var(--march)' },
+    { key: 'movable', tone: 'var(--march)' },
+    { key: 'destination', tone: 'var(--march)' },
+    { key: 'aim', tone: 'var(--march)' },
+    { key: 'reticle' },
+    { key: 'target' },
+    { key: 'frame' },
+    { key: 'zone' },
+    { key: 'attacker' },
+    { key: 'last' },
+    { key: 'kill' },
+  ]
 
   function inZone(kind: PieceKind, drow: number, dcol: number): boolean {
     return attackZone(kind).some(([r, c]) => r === drow && c === dcol)
   }
 </script>
 
-<div
-  class="scrim"
-  role="button"
-  tabindex="-1"
-  onclick={onclose}
-  onkeydown={(event) => event.key === 'Escape' && onclose()}
->
-  <div
-    class="panel sheet"
-    role="dialog"
-    aria-label="Rules"
-    tabindex="-1"
-    onclick={(event) => event.stopPropagation()}
-    onkeydown={() => {}}
-  >
-    <header>
-      <h2>Assedio</h2>
-      <button onclick={onclose}>Close</button>
-    </header>
+<Modal label="Rules of Assedio" {onclose}>
+  <header class="top">
+    <h2>Assedio</h2>
+    <button data-autofocus onclick={onclose}>Close</button>
+  </header>
 
-    <section>
-      <h3>Objective</h3>
-      <p>Win immediately by accomplishing either:</p>
-      <ul>
-        <li>Destroy all 3 enemy castles.</li>
-        <li>Destroy both enemy siege engines.</li>
-      </ul>
-      <p class="aside">
-        Only siege engines destroy castles, so a side that has lost both can never win — which is
-        why that ends it.
-      </p>
+  <div class="sections">
+    <section class="box">
+      <h3 class="bar">Objective</h3>
+      <div class="inner objective">
+        <p><strong>Win immediately by accomplishing either:</strong></p>
+        <div class="either">
+          <span class="art castle"><TerrainIcon kind="castle" /></span>
+          <span>Destroy all 3 enemy castles.</span>
+        </div>
+        <span class="or">or</span>
+        <div class="either">
+          <span class="art pair">
+            <PieceIcon kind="batteringRam" owner={0} />
+            <PieceIcon kind="trebuchet" owner={0} />
+          </span>
+          <span>Destroy both enemy siege engines.</span>
+        </div>
+      </div>
     </section>
 
-    <section>
-      <h3>Your turn</h3>
-      <p>
-        You have two command tokens. The March token rides a row and the Flank token a column, and
-        each has a Move side and an Attack side.
-      </p>
-      <ol class="steps">
-        <li>Slide the command token that is on its Move side to a new row or column.</li>
-        <li>Activate one of your command tokens, then flip it over.</li>
-        <li>Activate your other command token, then flip it over.</li>
+    <section class="box">
+      <h3 class="bar">Your Turn</h3>
+      <ol class="inner steps">
+        <li>
+          <span class="diamond"><span>1</span></span>
+          <p>Slide the command token that is on its Move side to a new row or column.</p>
+        </li>
+        <li>
+          <span class="diamond"><span>2</span></span>
+          <p>Activate one of your command tokens, then flip it over.</p>
+        </li>
+        <li>
+          <span class="diamond"><span>3</span></span>
+          <p>Activate your other command token, then flip it over.</p>
+        </li>
       </ol>
-      <p class="aside">
+      <p class="inner aside">
         Both sides open with the March token Attack side up on the middle row and the Flank token
         Move side up on the middle column. So the token you slid last turn is the one that attacks
         this turn, from the line you put it on: every Attack is announced a full turn before it is
-        made.
+        made. In this game you start an activation by doing it — move a piece, or pick a target —
+        and whichever you start first goes first.
       </p>
     </section>
 
-    <section>
-      <h3>The sides</h3>
+    <section class="box">
       <div class="sides">
         <div>
-          <span><TokenIcon kind="march" side="move" size={26} /></span>
-          <span
-            ><strong>March</strong> — move 1 piece in the row vertically or horizontally any number of
-            spaces.</span
-          >
+          <h3 class="bar maroon">March (Move)</h3>
+          <div class="inner side">
+            <span class="token"><TokenIcon kind="march" side="move" owner={0} /></span>
+            <p>Move 1 piece in the row vertically or horizontally any number of spaces.</p>
+          </div>
         </div>
         <div>
-          <span><TokenIcon kind="flank" side="move" size={26} /></span>
-          <span
-            ><strong>Flank</strong> — move 1 piece in the column diagonally any number of spaces.</span
-          >
+          <h3 class="bar maroon">Flank (Move)</h3>
+          <div class="inner side">
+            <span class="token"><TokenIcon kind="flank" side="move" owner={0} /></span>
+            <p>Move 1 piece in the column diagonally any number of spaces.</p>
+          </div>
         </div>
         <div>
-          <span><TokenIcon kind="march" side="attack" size={26} /></span>
-          <span
-            ><strong>Attack</strong> — attack with any number of your pieces in the row or column.</span
-          >
+          <h3 class="bar maroon">Attack</h3>
+          <div class="inner side">
+            <span class="token"><TokenIcon kind="march" side="attack" owner={0} /></span>
+            <p>Attack with any number of your pieces in the row or column.</p>
+          </div>
         </div>
       </div>
-      <p class="aside">
+      <p class="inner aside">
         The token picks which line a piece comes <em>from</em>; the move may carry it off that
-        line. Moves never capture and never jump. You may also flip a Move side and take no action.
+        line. Moves never capture and never jump. You may flip a Move side and take no action.
       </p>
     </section>
 
-    <section>
-      <h3>Attacks</h3>
-      <p>
-        <strong>Pieces do not move when attacking.</strong> When an Attack is issued to a row or
-        column a piece is in, it may kill one piece in its Attack Zone. Nothing blocks an attack: a
-        spearman reaches over the square in front of it.
-      </p>
-      <div class="patterns">
-        {#each FIGHTERS as kind (kind)}
-          <figure>
-            <div class="mini">
-              {#each RANGE as drow (drow)}
-                {#each RANGE as dcol (dcol)}
-                  <span
-                    class="cell"
-                    class:hit={inZone(kind, drow, dcol)}
-                    class:self={drow === 0 && dcol === 0}
-                  >
-                    {#if drow === 0 && dcol === 0}
-                      <PieceIcon {kind} size={20} />
-                    {/if}
-                  </span>
+    <section class="box">
+      <h3 class="bar">Pieces do not move when attacking!</h3>
+      <div class="inner">
+        <p>
+          When an Attack is issued to a row or column a piece is in, it may kill one piece that is
+          in its Attack Zone. Nothing blocks an attack: a spearman reaches over the square in front
+          of it.
+        </p>
+        <div class="patterns">
+          {#each FIGHTERS as kind (kind)}
+            <figure>
+              <div class="mini">
+                {#each RANGE as drow (drow)}
+                  {#each RANGE as dcol (dcol)}
+                    <span class="cell" class:hit={inZone(kind, drow, dcol)}>
+                      {#if drow === 0 && dcol === 0}
+                        <PieceIcon {kind} owner={0} />
+                      {/if}
+                    </span>
+                  {/each}
                 {/each}
-              {/each}
-            </div>
-            <figcaption>{PIECE_NAMES[kind]}</figcaption>
-          </figure>
-        {/each}
+              </div>
+              <figcaption>{PIECE_NAMES[kind]}</figcaption>
+            </figure>
+          {/each}
+        </div>
       </div>
-      <ul class="siege">
-        <li>
-          <span class="engine"><PieceIcon kind="trebuchet" size={20} /></span>
-          <span>
-            <strong>Trebuchet</strong> — destroys a castle that is 3 spaces away, vertically,
-            horizontally or diagonally. From the centre hilltop it bears on every castle on the
-            board, and brings one of them down a turn.
-          </span>
-        </li>
-        <li>
-          <span class="engine"><PieceIcon kind="batteringRam" size={20} /></span>
-          <span>
-            <strong>Battering Ram</strong> — destroys a castle that is 1 space away vertically or
-            horizontally.
-          </span>
-        </li>
-      </ul>
+      <div class="sides two">
+        <div>
+          <h3 class="bar">Trebuchet</h3>
+          <div class="inner side">
+            <span class="token"><PieceIcon kind="trebuchet" owner={0} /></span>
+            <p>
+              Destroy a castle that is 3 spaces away, vertically, horizontally, or diagonally. From
+              the centre hilltop it bears on every castle on the board.
+            </p>
+          </div>
+        </div>
+        <div>
+          <h3 class="bar">Battering Ram</h3>
+          <div class="inner side">
+            <span class="token"><PieceIcon kind="batteringRam" owner={0} /></span>
+            <p>Destroy a castle that is 1 space away vertically or horizontally.</p>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <section>
-      <h3>The ground</h3>
-      <ul class="siege">
-        <li>
-          <span class="engine"><TerrainIcon kind="castle" size={20} /></span>
-          <span>
-            <strong>Castles</strong> — you cannot move onto an enemy castle, nor through one. If a
-            castle is destroyed, it becomes a hilltop.
-          </span>
-        </li>
-        <li>
-          <span class="engine"><TerrainIcon kind="hilltop" size={20} /></span>
-          <span>
-            <strong>Hilltops</strong> — pieces can move onto hilltops. They mark where trebuchets
-            can attack from.
-          </span>
-        </li>
-        <li>
-          <span class="engine"><PieceIcon kind="rock" size={20} /></span>
-          <span>
-            <strong>Rocks</strong> — neutral pieces that can be killed by your attacks. Like any
-            piece, a rock blocks a move; siege engines only ever destroy castles, so it falls to
-            the rest of your army.
-          </span>
-        </li>
-      </ul>
+    <section class="box">
+      <div class="sides">
+        <div>
+          <h3 class="bar">Castles</h3>
+          <div class="inner side">
+            <span class="token castle"><TerrainIcon kind="castle" /></span>
+            <p>
+              You cannot move onto an enemy castle space, nor through one. If a castle is destroyed,
+              it becomes a hilltop.
+            </p>
+          </div>
+        </div>
+        <div>
+          <h3 class="bar">Hilltops</h3>
+          <div class="inner side">
+            <span class="token"><TerrainIcon kind="hilltop" /></span>
+            <p>Pieces can move onto hilltops. They mark where trebuchets can attack from.</p>
+          </div>
+        </div>
+        <div>
+          <h3 class="bar">Rocks</h3>
+          <div class="inner side">
+            <span class="token"><PieceIcon kind="rock" /></span>
+            <p>Rocks are neutral pieces that can be killed by your attacks. They block moves.</p>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <section>
-      <h3>Reading the board</h3>
-      <ul class="marks">
-        <li><i class="key own"></i> a piece or castle your Attack can take</li>
-        <li><i class="key own-reach"></i> your Attack Zone, occupied or not</li>
-        <li><i class="key threat"></i> what the opponent's Attack can take</li>
-        <li><i class="key threat-reach"></i> their Attack Zone — move into it and they can attack you</li>
-        <li><i class="key movable"></i> a piece this activation may move</li>
-        <li><i class="key dest"></i> somewhere it may go</li>
-        <li><i class="key kill"></i> a destination that would put a target in your Attack Zone</li>
-      </ul>
-      <p class="aside">
-        Each attacker takes one target, so a line reaching four things still only takes as many as
-        it has pieces to attack with. Hover a slide target or a destination and the line under the
-        board says what it leads to; both sets of hints have a switch in the top bar. Decisions
-        with only one answer worth making — a forced pass, an activation order that leads to the
-        same board either way or would attack nothing — are taken for you and recorded in the
-        dispatches.
-      </p>
+    <section class="box">
+      <h3 class="bar">Reading the Board</h3>
+      <div class="inner">
+        <Legend entries={KEYS} mine="Your" theirs="The opponent's" />
+        <p class="aside">
+          Moves are marked in the colour of the token making them: cyan for March, orange for
+          Flank. Hover a piece to shade its Attack Zone, a threatened square to see who threatens
+          it, or a dispatch to light the squares it names. On a touch screen, the first tap on a
+          slide or a destination shows where it leads and a second tap commits it. Decisions with
+          only one answer worth making are taken for you.
+        </p>
+      </div>
     </section>
   </div>
-</div>
+</Modal>
 
 <style>
-  .scrim {
-    position: fixed;
-    inset: 0;
-    z-index: 20;
-    background: rgba(51, 36, 15, 0.5);
-    display: grid;
-    place-items: center;
-    padding: 1rem;
-    border: none;
-  }
-
-  .sheet {
-    max-width: 46rem;
-    max-height: 90vh;
-    overflow-y: auto;
-    padding: 1.2rem 1.4rem 1.6rem;
-    display: grid;
-    gap: 1.1rem;
-    text-align: left;
-    cursor: default;
-  }
-
-  header {
+  .top {
+    position: sticky;
+    top: 0;
+    z-index: 1;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    position: sticky;
-    top: -1.2rem;
-    background: var(--panel);
-    padding: 0.4rem 0;
-    margin: -0.4rem 0;
+    padding: 0.7rem 1.1rem;
+    background: var(--navy);
+    color: var(--peach);
+    border-radius: 11px 11px 0 0;
   }
 
-  h2 {
-    font-size: 1.5rem;
+  .top h2 {
+    font-size: 1.6rem;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
 
-  .marks {
+  .sections {
     display: grid;
-    gap: 0.35rem;
-    list-style: none;
-    padding: 0;
+    gap: 1rem;
+    padding: 1rem 1.1rem 1.3rem;
   }
 
-  .marks li {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+  .box {
+    border: 2px solid var(--copper);
+    border-radius: 14px;
+    overflow: hidden;
+    background: rgba(255, 252, 240, 0.35);
   }
 
-  .key {
-    width: 14px;
-    height: 14px;
-    border-radius: 2px;
-    flex: none;
+  .bar {
+    background: var(--navy);
+    color: var(--peach);
+    text-align: center;
+    font-size: 1.05rem;
+    font-weight: 800;
+    padding: 0.25rem 0.6rem;
   }
 
-  .key.own {
-    border: 2px solid var(--gold);
-    background: rgba(185, 143, 46, 0.2);
+  .bar.maroon {
+    background: var(--maroon);
   }
 
-  .key.own-reach {
-    border: 1px solid var(--gold-soft);
-    background: repeating-linear-gradient(
-      -45deg,
-      rgba(185, 143, 46, 0.55) 0 2px,
-      transparent 2px 6px
-    );
-  }
-
-  .key.threat {
-    border: 2px solid var(--crimson);
-    background: rgba(163, 34, 34, 0.22);
-  }
-
-  .key.threat-reach {
-    border: 1px solid rgba(163, 34, 34, 0.4);
-    background: repeating-linear-gradient(
-      45deg,
-      rgba(163, 34, 34, 0.5) 0 2px,
-      transparent 2px 6px
-    );
-  }
-
-  .key.movable {
-    box-shadow: inset 0 0 0 2px var(--gold);
-  }
-
-  .key.dest {
-    border-radius: 50%;
-    background: var(--azure);
-    opacity: 0.55;
-  }
-
-  .key.kill {
-    border-radius: 50%;
-    background: var(--crimson);
-    opacity: 0.7;
-  }
-
-  h3 {
-    font-size: 1rem;
-    color: var(--ink-soft);
-    margin-bottom: 0.3rem;
-  }
-
-  ul,
-  ol {
-    padding-left: 1.1rem;
-    display: grid;
-    gap: 0.2rem;
-  }
-
-  p + ul,
-  p + ol,
-  ul + p,
-  ol + p {
-    margin-top: 0.4rem;
+  .inner {
+    padding: 0.7rem 0.9rem;
   }
 
   .aside {
     color: var(--ink-soft);
     font-style: italic;
-    border-left: 2px solid var(--gold-soft);
-    padding-left: 0.7rem;
+    font-size: 0.92rem;
+    border-top: 1px solid var(--copper-soft);
+  }
+
+  .inner > .aside,
+  .inner .aside {
+    border-top: none;
+    margin-top: 0.6rem;
+    padding: 0;
+  }
+
+  .objective {
+    display: grid;
+    gap: 0.45rem;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .either {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    font-weight: 700;
+  }
+
+  .art {
+    display: inline-flex;
+    gap: 0.3rem;
+  }
+
+  .art.castle {
+    width: 3.2rem;
+    height: 3rem;
+  }
+
+  .art.pair :global(img) {
+    width: 2.4rem;
+    height: 2.4rem;
+  }
+
+  .or {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    color: var(--copper-deep);
+  }
+
+  .steps {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.8rem;
+  }
+
+  .steps li {
+    display: grid;
+    justify-items: center;
+    gap: 0.4rem;
+    text-align: center;
+    font-weight: 700;
+  }
+
+  .diamond {
+    display: inline-grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    transform: rotate(45deg);
+    border: 2px solid var(--copper);
+    background: var(--peach);
+  }
+
+  .diamond span {
+    transform: rotate(-45deg);
+    font-weight: 800;
   }
 
   .sides {
     display: grid;
-    gap: 0.5rem;
+    grid-template-columns: repeat(3, 1fr);
   }
 
-  .sides > div {
+  .sides.two {
+    grid-template-columns: repeat(2, 1fr);
+    border-top: 2px solid var(--copper);
+  }
+
+  .sides > div + div {
+    border-left: 2px solid var(--copper);
+  }
+
+  .side {
     display: grid;
-    grid-template-columns: 2rem 1fr;
-    align-items: center;
-    gap: 0.6rem;
+    justify-items: center;
+    gap: 0.45rem;
+    text-align: center;
+    font-weight: 600;
+  }
+
+  .token {
+    width: 2.6rem;
+    height: 2.6rem;
+  }
+
+  .token.castle {
+    width: 3rem;
   }
 
   .patterns {
     display: flex;
     flex-wrap: wrap;
-    gap: 1rem;
+    justify-content: center;
+    gap: 1.1rem;
+    margin-top: 0.7rem;
   }
 
   figure {
@@ -355,42 +389,39 @@
 
   .mini {
     display: grid;
-    grid-template-columns: repeat(5, 24px);
-    grid-template-rows: repeat(5, 24px);
+    grid-template-columns: repeat(5, 1.6rem);
+    grid-template-rows: repeat(5, 1.6rem);
+    border: 2px solid var(--board-line);
   }
 
   .cell {
-    border: 1px solid var(--board-line);
+    box-shadow: inset 0 0 0 0.75px var(--board-line);
     display: grid;
     place-items: center;
+    padding: 2px;
   }
 
   .cell.hit {
-    background: rgba(163, 34, 34, 0.75);
-  }
-
-  .cell.self {
-    background: var(--castle-tint);
+    background: var(--attack);
   }
 
   figcaption {
     font-family: var(--font-display);
-    font-size: 0.75rem;
-    letter-spacing: 0.06em;
+    font-size: 0.8rem;
+    font-weight: 800;
     color: var(--ink-soft);
   }
 
-  .siege {
-    list-style: none;
-    padding: 0;
-    gap: 0.5rem;
-    margin-top: 0.7rem;
-  }
+  @media (max-width: 600px) {
+    .steps,
+    .sides,
+    .sides.two {
+      grid-template-columns: 1fr;
+    }
 
-  .siege li {
-    display: grid;
-    grid-template-columns: 1.6rem 1fr;
-    gap: 0.6rem;
-    align-items: start;
+    .sides > div + div {
+      border-left: none;
+      border-top: 2px solid var(--copper);
+    }
   }
 </style>

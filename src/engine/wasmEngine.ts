@@ -4,11 +4,13 @@
 import init, {
   wasm_apply_choice,
   wasm_attack_preview,
+  wasm_attack_shots,
   wasm_forced_order,
   wasm_initial_state,
   wasm_legal_choices,
   wasm_move_outcomes,
   wasm_pending_attackers,
+  wasm_piece_reach,
   wasm_slide_outcomes,
 } from '../wasm-pkg/assedio_wasm.js'
 import type {
@@ -17,6 +19,8 @@ import type {
   GameEvent,
   GameState,
   MoveOutcome,
+  PieceReach,
+  Shot,
   SlideOutcome,
   Square,
   TokenKind,
@@ -75,4 +79,16 @@ export function slideOutcomes(state: GameState): SlideOutcome[] {
 /** The attackers of the Attack in progress that have still to choose. */
 export function pendingAttackers(state: GameState): Square[] {
   return JSON.parse(wasm_pending_attackers(JSON.stringify(state)))
+}
+
+/** The Attack Zone of the piece on `square` and what it could take, or null
+    for an empty square. */
+export function pieceReach(state: GameState, square: Square): PieceReach | null {
+  return JSON.parse(wasm_piece_reach(JSON.stringify(state), JSON.stringify(square)))
+}
+
+/** Each attacker an Attack along this player's token's line would ask for a
+    target, in the order it would ask them. */
+export function attackShots(state: GameState, player: number, token: TokenKind): Shot[] {
+  return JSON.parse(wasm_attack_shots(JSON.stringify(state), player, JSON.stringify(token)))
 }

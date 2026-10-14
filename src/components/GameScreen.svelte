@@ -2,8 +2,13 @@
   import { onDestroy, onMount } from 'svelte'
   import Board from './Board.svelte'
   import EventLog from './EventLog.svelte'
+  import Legend from './Legend.svelte'
+  import type { LegendEntry } from './Legend.svelte'
+  import Modal from './Modal.svelte'
+  import Ornament from './Ornament.svelte'
   import PlayerPanel from './PlayerPanel.svelte'
   import RulesOverlay from './RulesOverlay.svelte'
+  import TokenIcon from './TokenIcon.svelte'
   import { AiController } from '../ai/aiController'
   import {
     applyChoice,
@@ -15,14 +20,23 @@
     pendingAttackers,
     slideOutcomes,
   } from '../engine/wasmEngine'
-  import { describeEvent, destroyedSquares, lineName, squareName } from '../data/log'
-  import type { LogEntry } from '../data/log'
+  import { destroyedSquares, lineName, squareName } from '../data/log'
+  import { clearGame, saveGame } from '../data/session'
+  import type { GameSetup, SavedGame } from '../data/session'
+  import {
+    advanceIds,
+    idsAfter,
+    initialIds,
+    recordTurns,
+    summarize,
+    turnMarks,
+  } from '../data/turns'
+  import type { PieceIds, Turn } from '../data/turns'
   import {
     PIECE_NAMES,
     PLAYER_NAMES,
     TOKEN_NAMES,
-    armedToken,
-    attackPending,
+    attackingToken,
     pendingTokens,
     pieceAt,
     tokenOf,
@@ -37,109 +51,213 @@
     TokenKind,
   } from '../data/types'
 
-  export interface GameSetup {
-    seats: ('human' | 'ai')[]
-    iterations: number
-    difficulty: string
-  }
-
   interface Props {
     setup: GameSetup
+    /** A game to pick up where it was left, rather than a new one. */
+    saved?: SavedGame | null
     onexit: () => void
   }
 
-  let { setup, onexit }: Props = $props()
+  let { setup, saved = null, onexit }: Props = $props()
 
-  /** Pause between the AI's three decisions so a turn can be followed. */
-  const STEP_MS = 480
-  const FLASH_MS = 750
+  type Speed = 'slow' | 'normal' | 'fast'
+  const SPEEDS: Speed[] = ['slow', 'normal', 'fast']
+  /** Pauses between the machine's decisions within a turn, and between whole
+      turns when two machines play, so a turn can be followed. */
+  const PACE: Record<Speed, { step: number; gap: number }> = {
+    slow: { step: 1000, gap: 1500 },
+    normal: { step: 600, gap: 700 },
+    fast: { step: 150, gap: 150 },
+  }
+  const FLASH_MS = 800
 
   interface Snapshot {
     game: GameState
-    entries: LogEntry[]
+    turns: Turn[]
+    ids: PieceIds
   }
 
-  let game: GameState = $state(initialState())
-  let entries: LogEntry[] = $state([])
-  let destroyed: Square[] = $state([])
-  let history: Snapshot[] = $state([])
-  /** True from the moment a search starts until the AI's turn is on the board. */
+  const start = initialState()
+  // A saved game is the starting point by design, not a value to keep in sync.
+  // svelte-ignore state_referenced_locally
+  const resumed = saved
+
+  // Every position, turn record and id list is replaced, never edited, so they
+  // are held raw: an undo snapshot can share them rather than copy them.
+  let game: GameState = $state.raw(resumed?.game ?? start)
+  let turns: Turn[] = $state.raw(resumed?.turns ?? [])
+  let ids: PieceIds = $state.raw(resumed?.ids ?? initialIds(start))
+  let history: Snapshot[] = $state.raw([])
+  let epoch = $state(0)
+  let destroyed: Square[] = $state.raw([])
+  /** True from the moment a search starts until the machine's turn is on the
+      board. */
   let thinking = $state(false)
   let failure: string | null = $state(null)
   let showRules = $state(false)
-  let showThreats = $state(true)
-  let showOutcomes = $state(true)
+  let showOptions = $state(false)
+  let confirmRestart = $state(false)
+  let showThreats = $state(readPref('threats'))
+  let showOutcomes = $state(readPref('outcomes'))
   /** A sentence about whatever is under the cursor on the board. */
   let hint: string | null = $state(null)
+  let highlight: Square[] = $state.raw([])
+  let legend: LegendEntry[] = $state.raw([])
+  /** How many turns the review is showing, or null outside a review. */
+  let review: number | null = $state(null)
+  let paused = $state(false)
+  let speed: Speed = $state('normal')
+  let cardDismissed = $state(false)
 
   const ai = new AiController()
-  /** Bumped whenever the position the AI is searching stops being current. */
+  /** Bumped whenever the position the machine is searching stops being
+      current. */
   let generation = 0
+  let stepOnce = false
   let flashTimer: ReturnType<typeof setTimeout> | null = null
+
+  function readPref(name: string): boolean {
+    try {
+      return localStorage.getItem(`assedio:${name}`) !== 'off'
+    } catch {
+      return true
+    }
+  }
+
+  function writePref(name: string, on: boolean) {
+    try {
+      localStorage.setItem(`assedio:${name}`, on ? 'on' : 'off')
+    } catch {
+      // A preference that does not stick is no reason to stop.
+    }
+  }
 
   let humanSeats = $derived(
     setup.seats.map((seat, index) => (seat === 'human' ? index : -1)).filter((i) => i >= 0),
   )
-  let isHumanTurn = $derived(
-    game.outcome === null && setup.seats[game.currentPlayer] === 'human' && !thinking,
+  let mode = $derived(
+    humanSeats.length === 1 ? 'solo' : humanSeats.length === 2 ? 'hotseat' : 'watch',
   )
-  let choices: Choice[] = $derived(isHumanTurn ? legalChoices(game) : [])
-  let mustPass = $derived(choices.length === 1 && choices[0].type === 'pass')
-
-  /** The piece now choosing a target, while an Attack walks its line. */
-  let attackerSquare = $derived.by(() => {
-    for (const choice of choices) {
-      if (choice.type === 'attack' || choice.type === 'holdFire') return choice.from
-    }
-    return null
-  })
+  let isHumanTurn = $derived(
+    review === null &&
+      game.outcome === null &&
+      setup.seats[game.currentPlayer] === 'human' &&
+      !thinking,
+  )
 
   // Whose controls are live. One human seat keeps them that side's even while
-  // the opponent thinks; hot-seat and watched games have no such side, so they
-  // follow whoever is to move. It is `orientation` that holds still.
-  let viewer = $derived(humanSeats.length === 1 ? humanSeats[0] : game.currentPlayer)
+  // the opponent thinks; hot-seat and watched games follow whoever is to move.
+  let viewer = $derived(mode === 'solo' ? humanSeats[0] : game.currentPlayer)
 
-  /** The side drawn nearest: yours, when exactly one seat is yours. Hot-seat
-      and watched games have no such side and keep the rules sheet's view, with
-      Ivory along the bottom. Fixed for the game either way; a board that turned
-      each turn would cost every player the picture of the position they had
-      built. */
-  let orientation = $derived(humanSeats.length === 1 ? humanSeats[0] : 0)
+  /** The side drawn nearest: yours against the machine, otherwise the rules
+      sheet's view with Ivory along the bottom. Fixed for the whole game. */
+  let orientation = $derived(mode === 'solo' ? humanSeats[0] : 0)
+
+  /** While the activation order is open, the two ways the turn could go. The
+      board offers the moves of one and the first target of the other, and
+      whichever the player takes first decides the order. */
+  let orderPlan = $derived.by(() => {
+    if (!isHumanTurn || game.phase !== 'order') return null
+    const armed = attackingToken(game, game.currentPlayer)
+    if (!armed) return null
+    const mover: TokenKind = armed === 'march' ? 'flank' : 'march'
+    const position = game
+    return {
+      armed,
+      mover,
+      moveFirst: applyChoice(position, { type: 'order', first: mover }).state,
+      attackFirst: applyChoice(position, { type: 'order', first: armed }).state,
+    }
+  })
+
+  let choices: Choice[] = $derived.by(() => {
+    if (!isHumanTurn) return []
+    if (!orderPlan) return legalChoices(game)
+    return [
+      ...legalChoices(orderPlan.moveFirst),
+      ...legalChoices(orderPlan.attackFirst).filter(
+        (choice) => choice.type === 'attack' || choice.type === 'holdFire',
+      ),
+    ]
+  })
+  let moveState = $derived(orderPlan?.moveFirst ?? game)
+  let mustPass = $derived(
+    game.phase === 'activate' && choices.length === 1 && choices[0].type === 'pass',
+  )
+
+  /** The game on the board: the live one, or a reviewed turn. */
+  let shown: GameState = $derived(
+    review === null ? game : review === 0 ? start : (turns[review - 1].after ?? game),
+  )
+  let shownIds = $derived(review === null ? ids : idsAfter(start, turns, review))
 
   let attacks = $derived.by(() => {
     const result: Record<number, AttackPreview | null> = { 0: null, 1: null }
+    if (review !== null || shown.outcome) return result
     for (const player of [0, 1]) {
-      const kind = armedToken(game, player)
-      result[player] = kind ? attackPreview(game, player, kind) : null
+      const kind = attackingToken(shown, player)
+      result[player] = kind ? attackPreview(shown, player, kind) : null
     }
     return result
   })
 
-  let orderChoices = $derived(choices.filter((choice) => choice.type === 'order'))
-
   let outcomes: MoveOutcome[] = $derived(
-    isHumanTurn && game.phase === 'activate' ? moveOutcomes($state.snapshot(game)) : [],
+    isHumanTurn && (game.phase === 'activate' || orderPlan)
+      ? moveOutcomes(moveState)
+      : [],
   )
   let slides: SlideOutcome[] = $derived(
-    isHumanTurn && game.phase === 'slide' ? slideOutcomes($state.snapshot(game)) : [],
+    isHumanTurn && game.phase === 'slide' ? slideOutcomes(game) : [],
   )
-  let attackers: Square[] = $derived(
-    game.phase === 'attack' ? pendingAttackers($state.snapshot(game)) : [],
+  let attackers: Square[] = $derived.by(() => {
+    if (orderPlan) return pendingAttackers(orderPlan.attackFirst)
+    return game.phase === 'attack' && review === null
+      ? pendingAttackers(game)
+      : []
+  })
+  let moveToken: TokenKind | null = $derived(
+    orderPlan
+      ? orderPlan.mover
+      : game.phase === 'activate'
+        ? (pendingTokens(game)[0] ?? null)
+        : null,
   )
 
-  function choose(type: 'pass' | 'holdFire') {
-    const choice = choices.find((option) => option.type === type)
-    if (choice) handleChoice(choice)
+  /** The turn whose marks stay on the board: the one before a person's own
+      while they decide, and otherwise the latest, played out as it happens. */
+  let marks = $derived.by(() => {
+    if (review !== null) return review > 0 ? turnMarks(turns[review - 1]) : null
+    const last = turns.at(-1)
+    if (!last) return null
+    if (isHumanTurn && !last.after) {
+      const before = turns.at(-2)
+      return before ? turnMarks(before) : null
+    }
+    return turnMarks(last)
+  })
+
+  let summary = $derived(summarize(turns))
+
+  function snapshot(): Snapshot {
+    return { game, turns, ids }
   }
+
+  // The game is saved as it goes, so a reload or a trip to the menu loses
+  // nothing.
+  $effect(() => {
+    saveGame({ setup, ...snapshot() })
+  })
+
+  $effect(() => writePref('threats', showThreats))
+  $effect(() => writePref('outcomes', showOutcomes))
 
   function apply(choice: Choice) {
     hint = null
-    const result = applyChoice($state.snapshot(game), choice)
+    const round = game.turn
+    const result = applyChoice(game, choice)
     game = result.state
-    for (const event of result.events) {
-      const entry = describeEvent(event)
-      if (entry) entries = [...entries, entry]
-    }
+    turns = recordTurns(turns, result.events, round, result.state)
+    ids = advanceIds(ids, result.events)
     const struck = destroyedSquares(result.events)
     if (struck.length > 0) {
       destroyed = struck
@@ -150,9 +268,25 @@
 
   function handleChoice(choice: Choice) {
     if (!isHumanTurn) return
-    history = [...history, { game: $state.snapshot(game), entries: [...entries] }]
+    history = [...history, snapshot()]
+    if (orderPlan) {
+      const attackFirst = choice.type === 'attack' || choice.type === 'holdFire'
+      apply({ type: 'order', first: attackFirst ? orderPlan.armed : orderPlan.mover })
+    }
     apply(choice)
     advance()
+  }
+
+  function attackFirst() {
+    if (!orderPlan) return
+    history = [...history, snapshot()]
+    apply({ type: 'order', first: orderPlan.armed })
+    advance()
+  }
+
+  function choose(type: 'pass' | 'holdFire') {
+    const choice = choices.find((option) => option.type === type)
+    if (choice) handleChoice(choice)
   }
 
   /** Play out every decision that has only one possible outcome, so the player
@@ -165,7 +299,7 @@
       if (game.outcome || thinking) return
       if (setup.seats[game.currentPlayer] !== 'human') return
 
-      const position = $state.snapshot(game)
+      const position = game
       const options = legalChoices(position)
       if (options.length === 1) {
         apply(options[0])
@@ -186,99 +320,165 @@
   }
 
   function driveAi() {
-    if (game.outcome || thinking) return
+    if (game.outcome || thinking || review !== null) return
     if (setup.seats[game.currentPlayer] !== 'ai') return
+    if (paused && !stepOnce) return
+    stepOnce = false
     void runAi()
   }
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
   async function runAi() {
     thinking = true
     const gen = generation
     try {
-      const turn = await ai.takeTurn($state.snapshot(game), setup.iterations)
-      if (gen !== generation) return
+      const turn = await ai.takeTurn(game, setup.iterations)
       for (const [index, choice] of turn.choices.entries()) {
         if (gen !== generation) return
         apply(choice)
-        if (index < turn.choices.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, STEP_MS))
-        }
+        if (index < turn.choices.length - 1) await sleep(PACE[speed].step)
       }
     } catch (error) {
       if (gen === generation) failure = String(error)
     } finally {
       if (gen === generation) thinking = false
     }
-    // Two machines playing each other hand the turn straight back.
+    if (gen !== generation) return
+    // Two machines playing each other leave a beat between turns.
+    if (mode === 'watch') await sleep(PACE[speed].gap)
     if (gen === generation) advance()
   }
 
-  function undo() {
-    const previous = history[history.length - 1]
-    if (!previous) return
+  /** Abandon whatever the machine is doing and put a position on the board. */
+  function reset(next: Snapshot) {
     generation += 1
     ai.cancel()
     thinking = false
     destroyed = []
     hint = null
-    game = previous.game
-    entries = previous.entries
+    highlight = []
+    game = next.game
+    turns = next.turns
+    ids = next.ids
+    epoch += 1
+  }
+
+  function undo() {
+    const previous = history.at(-1)
+    if (!previous) return
     history = history.slice(0, -1)
+    reset(previous)
   }
 
   function restart() {
-    generation += 1
-    ai.cancel()
-    thinking = false
-    destroyed = []
-    hint = null
-    entries = []
+    confirmRestart = false
+    showOptions = false
     history = []
     failure = null
-    game = initialState()
+    review = null
+    cardDismissed = false
+    reset({ game: start, turns: [], ids: initialIds(start) })
     advance()
   }
 
-  function orderLabel(kind: TokenKind): string {
-    const token = tokenOf(game, game.currentPlayer, kind)
-    const where = lineName(kind, token.line)
-    return token.side === 'attack'
-      ? `Attack along ${where} first`
-      : `${TOKEN_NAMES[kind]} from ${where} first`
+  function exit() {
+    generation += 1
+    ai.cancel()
+    if (game.outcome) clearGame()
+    onexit()
   }
 
-  /** What choosing this order puts in front of the Attack, so the choice reads
-      without counting squares. The question is only ever put when the Attack
-      has a target to take, so there is always something to count. */
-  function orderNote(kind: TokenKind): string {
-    if (tokenOf(game, game.currentPlayer, kind).side !== 'attack') {
-      return 'the Attack waits for the piece to land'
-    }
-    const preview = attacks[game.currentPlayer]
-    const targets =
-      (preview?.threatenedPieces.length ?? 0) + (preview?.threatenedCastles.length ?? 0)
-    return `${targets} ${targets === 1 ? 'target' : 'targets'} in reach now`
+  function togglePause() {
+    paused = !paused
+    if (!paused) advance()
   }
+
+  function step() {
+    stepOnce = true
+    driveAi()
+  }
+
+  function startReview(count: number) {
+    review = Math.max(0, Math.min(turns.length, count))
+    epoch += 1
+  }
+
+  function moveReview(delta: number) {
+    if (review === null) return
+    review = Math.max(0, Math.min(turns.length, review + delta))
+  }
+
+  function onKey(event: KeyboardEvent) {
+    if (event.key === 'Escape') showOptions = false
+    if (review === null || showRules) return
+    if (event.key === 'ArrowLeft') moveReview(-1)
+    if (event.key === 'ArrowRight') moveReview(1)
+  }
+
+  function attackOwner(player: number): string {
+    return mode === 'solo' && player === humanSeats[0] ? 'Your' : `${PLAYER_NAMES[player]}'s`
+  }
+
+  function seat(player: number): string {
+    if (setup.seats[player] === 'ai') return `Machine · ${setup.difficulty}`
+    return mode === 'solo' ? 'You' : 'Player'
+  }
+
+  /** Which of the sheet's three steps the turn is on. */
+  let currentStep = $derived.by(() => {
+    if (game.phase === 'slide') return 1
+    if (game.phase === 'order') return 2
+    return game.pendingLen >= 2 ? 2 : 3
+  })
+
+  let stepTokens = $derived.by((): (TokenKind | null)[] => {
+    const sliding = slides[0]?.token ?? null
+    if (game.phase === 'slide' || game.phase === 'order') return [sliding, null, null]
+    const pending = pendingTokens(game)
+    if (pending.length === 2) return [null, pending[0], pending[1]]
+    const done: TokenKind | null = pending[0] ? (pending[0] === 'march' ? 'flank' : 'march') : null
+    return [null, done, pending[0] ?? null]
+  })
+
+  let banner = $derived.by(() => {
+    if (game.outcome) {
+      return game.outcome.type === 'draw' ? 'A draw' : `${PLAYER_NAMES[game.outcome.player]} wins`
+    }
+    const mover = PLAYER_NAMES[game.currentPlayer]
+    if (mode === 'solo') {
+      return setup.seats[game.currentPlayer] === 'human' ? 'Your turn' : `${mover} is thinking…`
+    }
+    if (mode === 'watch') return paused && !thinking ? `Paused · ${mover} to move` : `${mover} to move`
+    return `${mover} to move`
+  })
 
   let prompt = $derived.by(() => {
     if (game.outcome) return ''
-    if (!isHumanTurn) return `${PLAYER_NAMES[game.currentPlayer]} is deliberating…`
+    if (!isHumanTurn) {
+      if (mode === 'watch' && paused && !thinking) return 'Paused. Step through a turn, or resume.'
+      return `${PLAYER_NAMES[game.currentPlayer]} is deliberating…`
+    }
     if (game.phase === 'slide') {
       const kind = slides[0]?.token
       if (!kind) return ''
       return `Slide your ${TOKEN_NAMES[kind]} token to a new ${kind === 'march' ? 'row' : 'column'}.`
     }
-    if (game.phase === 'order') return 'Both activations are ready — which goes first?'
+    if (orderPlan) {
+      const from = lineName(orderPlan.mover, tokenOf(game, game.currentPlayer, orderPlan.mover).line)
+      const along = lineName(orderPlan.armed, tokenOf(game, game.currentPlayer, orderPlan.armed).line)
+      return `${TOKEN_NAMES[orderPlan.mover]} a piece from ${from}, or Attack along ${along} first.`
+    }
     const kind = pendingTokens(game)[0]
     if (!kind) return ''
     const where = lineName(kind, tokenOf(game, game.currentPlayer, kind).line)
     if (game.phase === 'attack') {
-      if (!attackerSquare) return ''
-      const piece = pieceAt(game, attackerSquare)
-      const name = piece ? PIECE_NAMES[piece.kind] : 'attacker'
-      return `Attacking along ${where}: your ${name} on ${squareName(attackerSquare)} takes one target in its Attack Zone.`
+      const from = choices.find((c) => c.type === 'holdFire')
+      const piece = from && from.type === 'holdFire' ? pieceAt(game, from.from) : null
+      const at = from && from.type === 'holdFire' ? squareName(from.from) : ''
+      return `Attack along ${where}: your ${piece ? PIECE_NAMES[piece.kind] : 'attacker'} on ${at} takes one target.`
     }
-    if (mustPass) return `No piece on ${where} has a legal move.`
+    if (mustPass) return `No piece on ${where} can move.`
     return kind === 'march'
       ? `March: move a piece from ${where} vertically or horizontally.`
       : `Flank: move a piece from ${where} diagonally.`
@@ -289,153 +489,264 @@
   let guidance = $derived.by(() => {
     if (game.outcome || !isHumanTurn) return ''
     if (game.phase === 'slide') {
-      return 'The line you choose is also where this token attacks next turn.'
+      return 'The line you choose is where this token attacks from next turn.'
     }
-    if (game.phase === 'order') {
-      return 'An Attack counts only the pieces standing on its line the moment it is made.'
+    if (orderPlan) {
+      return 'Whichever you start first goes first. An Attack counts only the pieces on its line when it is made.'
     }
     if (game.phase === 'attack') {
       const left = attackers.length - 1
       return left > 0
-        ? `${left} more ${left === 1 ? 'attacker' : 'attackers'} after this one.`
+        ? `${left} more ${left === 1 ? 'attacker' : 'attackers'} on this line after this one.`
         : 'The last attacker on this line.'
     }
-    if (mustPass) return 'The activation passes; your Attack still goes ahead.'
-    if (!attackPending(game)) return 'Your Attack is done; this move ends the turn.'
-    const armed = pendingTokens(game)[1]
+    if (mustPass) return 'The activation passes.'
+    const armed = attackingToken(game, game.currentPlayer)
+    if (!armed) return 'Your Attack is done; this move ends the turn.'
     const where = lineName(armed, tokenOf(game, game.currentPlayer, armed).line)
     return `Your Attack along ${where} follows the moment the piece lands.`
   })
 
   let verdict = $derived.by(() => {
     if (!game.outcome) return null
-    if (game.outcome.type === 'draw') return 'A draw — neither side could force a decision.'
-    const winner = game.outcome.player
-    const loser = 1 - winner
-    const reason =
-      game.castles[loser].every((standing) => !standing)
-        ? 'every castle destroyed'
-        : 'both siege engines destroyed'
-    return `${PLAYER_NAMES[winner]} wins — ${PLAYER_NAMES[loser]} has ${reason}.`
+    if (game.outcome.type === 'draw') return 'Neither side could force a decision.'
+    const loser = 1 - game.outcome.player
+    return game.castles[loser].every((standing) => !standing)
+      ? `${PLAYER_NAMES[loser]} has lost every castle.`
+      : `${PLAYER_NAMES[loser]} has lost both siege engines.`
+  })
+
+  let endTitle = $derived.by(() => {
+    if (!game.outcome) return ''
+    if (game.outcome.type === 'draw') return 'A Draw'
+    if (mode === 'solo') return game.outcome.player === humanSeats[0] ? 'Victory' : 'Defeat'
+    return `${PLAYER_NAMES[game.outcome.player]} Wins`
   })
 
   // Only the opening move needs a kick; every turn after is driven from
   // `handleChoice` or from `runAi` itself.
   onMount(advance)
-  onDestroy(() => ai.dispose())
+  onDestroy(() => {
+    generation += 1
+    if (flashTimer) clearTimeout(flashTimer)
+    ai.dispose()
+  })
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <div class="screen">
   <header class="bar">
-    <div class="titles">
+    <div class="brand">
+      <span class="wide"><Ornament side="left" /></span>
       <h1>Assedio</h1>
-      <span class="small-caps">Turn {game.turn + 1} · {setup.difficulty}</span>
+      <span class="wide"><Ornament side="right" /></span>
     </div>
+    <p class="banner" class:over={game.outcome !== null} aria-live="polite">
+      <span class={`disc side-${game.outcome?.type === 'winner' ? game.outcome.player : game.currentPlayer}`}
+      ></span>
+      {banner}
+      {#if mode !== 'hotseat'}<span class="turn">· Turn {game.turn + 1}</span>{/if}
+    </p>
     <div class="controls">
-      <label class="toggle">
-        <input type="checkbox" bind:checked={showThreats} />
-        Show threats
-      </label>
-      <label class="toggle">
-        <input type="checkbox" bind:checked={showOutcomes} />
-        Look ahead
-      </label>
-      <button onclick={() => (showRules = true)}>Rules</button>
-      <button onclick={undo} disabled={history.length === 0}>Undo</button>
-      <button onclick={restart}>Restart</button>
-      <button onclick={onexit}>Menu</button>
+      {#if mode !== 'watch'}
+        <button
+          onclick={undo}
+          disabled={history.length === 0 || review !== null}
+          aria-label="Undo"
+          title="Undo"
+        >
+          <span class="full">Undo</span><svg class="short" viewBox="0 0 20 20" aria-hidden="true"
+            ><path d="M7 4 3 8l4 4M3.5 8H12a5 5 0 0 1 0 10H8" /></svg
+          >
+        </button>
+      {/if}
+      <button onclick={() => (showRules = true)} aria-label="Rules" title="Rules">
+        <span class="full">Rules</span><span class="short" aria-hidden="true">?</span>
+      </button>
+      <div class="options">
+        <button
+          aria-expanded={showOptions}
+          aria-haspopup="true"
+          aria-label="Options"
+          title="Options"
+          onclick={() => (showOptions = !showOptions)}
+        >
+          <span class="full">Options</span><span class="short" aria-hidden="true">☰</span>
+        </button>
+        {#if showOptions}
+          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+          <div class="catcher" onclick={() => (showOptions = false)}></div>
+          <div class="panel popover" role="menu" tabindex="-1">
+            <label class="switch"><input type="checkbox" bind:checked={showThreats} /> Show threats</label>
+            <label class="switch"><input type="checkbox" bind:checked={showOutcomes} /> Look ahead</label>
+            <hr />
+            <button onclick={() => ((confirmRestart = true), (showOptions = false))}>Restart…</button>
+            <button onclick={exit}>Main menu</button>
+          </div>
+        {/if}
+      </div>
     </div>
   </header>
 
   <div class="body">
-    <aside class="side">
-      {#each [1 - orientation, orientation] as player (player)}
-        <PlayerPanel
-          {game}
-          {player}
-          seat={setup.seats[player] === 'ai' ? 'Machine' : 'You'}
-          active={game.currentPlayer === player && !game.outcome}
-          thinking={thinking && game.currentPlayer === player}
-        />
-      {/each}
-      <EventLog {entries} />
-    </aside>
-
-    <main class="table">
+    <main class="board-area">
       <Board
-        {game}
-        legalChoices={choices}
+        game={shown}
+        {choices}
+        {moveState}
         {attacks}
         moveOutcomes={outcomes}
         slideOutcomes={slides}
         pendingAttackers={attackers}
+        {moveToken}
         {viewer}
         {orientation}
         {showThreats}
         {showOutcomes}
+        ids={shownIds}
+        {marks}
+        {highlight}
         {destroyed}
+        {epoch}
+        {attackOwner}
         onChoice={handleChoice}
         onhint={(text) => (hint = text)}
+        onlegend={(entries) => (legend = entries)}
       />
 
-      <div class="prompt panel">
-        {#if verdict}
-          <strong class="verdict">{verdict}</strong>
+      {#if game.outcome && review === null && !cardDismissed}
+        <div class="end-card panel" role="dialog" aria-label="Game over">
+          <h2 class="head">{endTitle}</h2>
+          <div class="end-body">
+            <p class="verdict">{verdict}</p>
+            <dl class="stats">
+              <dt>Turns</dt>
+              <dd>{summary.rounds}</dd>
+              {#each [0, 1] as player (player)}
+                <dt>{PLAYER_NAMES[player]}</dt>
+                <dd>
+                  {summary.castles[player]} castle{summary.castles[player] === 1 ? '' : 's'} destroyed,
+                  {summary.pieces[player]} piece{summary.pieces[player] === 1 ? '' : 's'} killed
+                </dd>
+              {/each}
+            </dl>
+            <div class="actions">
+              <button class="primary" onclick={restart}>Play again</button>
+              <button onclick={() => startReview(turns.length)}>Review the game</button>
+              <button onclick={exit}>Menu</button>
+            </div>
+            <button class="link" onclick={() => (cardDismissed = true)}>Look at the board</button>
+          </div>
+        </div>
+      {/if}
+    </main>
+
+    <section class="prompt panel">
+      {#if review !== null}
+        <p class="line">
+          Reviewing {review === 0 ? 'the opening position' : `turn ${turns[review - 1].round + 1}, ${PLAYER_NAMES[turns[review - 1].player]}`}
+        </p>
+        <div class="actions">
+          <button onclick={() => (review = 0)} disabled={review === 0} aria-label="First turn">⏮</button>
+          <button onclick={() => moveReview(-1)} disabled={review === 0}>◀ Back</button>
+          <span class="count" aria-label={`Turn ${review} of ${turns.length}`}>{review} / {turns.length}</span>
+          <button onclick={() => moveReview(1)} disabled={review === turns.length}>Next ▶</button>
+          <button onclick={() => (review = turns.length)} disabled={review === turns.length} aria-label="Last turn"
+            >⏭</button
+          >
+          <button class="primary" onclick={() => ((review = null), (epoch += 1))}>Done</button>
+        </div>
+      {:else if game.outcome}
+        <p class="line"><strong>{banner}.</strong> {verdict}</p>
+        {#if cardDismissed}
           <div class="actions">
             <button class="primary" onclick={restart}>Play again</button>
-            <button onclick={onexit}>Menu</button>
+            <button onclick={() => startReview(turns.length)}>Review the game</button>
+            <button onclick={exit}>Menu</button>
           </div>
-        {:else}
-          {#if isHumanTurn}
-            <ol class="steps small-caps">
-              <li class:done={game.phase !== 'slide'} class:now={game.phase === 'slide'}>
-                Slide a token
-              </li>
-              <li class:now={game.phase !== 'slide'}>Activate both</li>
-            </ol>
-          {/if}
-          <span class="line">{prompt}</span>
-          {#if hint || guidance}
-            <span class="guidance" class:live={hint !== null}>{hint ?? guidance}</span>
-          {/if}
-          {#if isHumanTurn && game.phase === 'order'}
-            <div class="actions">
-              {#each orderChoices as choice (choice.type === 'order' ? choice.first : '')}
-                {#if choice.type === 'order'}
-                  <button class="primary order" onclick={() => handleChoice(choice)}>
-                    <span>{orderLabel(choice.first)}</span>
-                    <span class="note">{orderNote(choice.first)}</span>
-                  </button>
+        {/if}
+      {:else}
+        {#if isHumanTurn}
+          <ol class="steps" aria-label="Your turn">
+            {#each ['Slide', 'Activate one', 'Activate the other'] as label, index (label)}
+              {@const n = index + 1}
+              {@const kind = stepTokens[index]}
+              <li class:now={currentStep === n} class:done={currentStep > n}>
+                <span class="diamond"><span>{n}</span></span>
+                {label}
+                {#if kind}
+                  <span class="step-token">
+                    <TokenIcon
+                      {kind}
+                      side={tokenOf(game, game.currentPlayer, kind).side}
+                      owner={game.currentPlayer}
+                    />
+                  </span>
                 {/if}
-              {/each}
-            </div>
+              </li>
+            {/each}
+          </ol>
+        {/if}
+        <p class="line" aria-live="polite">{prompt}</p>
+        <p class="guidance" class:live={hint !== null}>{hint ?? guidance}</p>
+        <div class="actions">
+          {#if isHumanTurn && orderPlan}
+            <button onclick={attackFirst}>Attack first</button>
+            <button onclick={() => choose('pass')}>Take no action</button>
           {:else if isHumanTurn && game.phase === 'attack'}
-            <div class="actions">
-              <button onclick={() => choose('holdFire')}>Hold fire</button>
-            </div>
+            <button onclick={() => choose('holdFire')}>Hold fire</button>
           {:else if isHumanTurn && game.phase === 'activate'}
-            <div class="actions">
-              <button class:primary={mustPass} onclick={() => choose('pass')}>
-                {mustPass ? 'Pass' : 'Take no action'}
-              </button>
-            </div>
+            <button class:primary={mustPass} onclick={() => choose('pass')}>
+              {mustPass ? 'Pass' : 'Take no action'}
+            </button>
+          {:else if mode === 'watch'}
+            <button class="primary" onclick={togglePause}>{paused ? 'Resume' : 'Pause'}</button>
+            <button onclick={step} disabled={!paused || thinking}>Step a turn</button>
+            <span class="speed" role="radiogroup" aria-label="Speed">
+              {#each SPEEDS as option (option)}
+                <button
+                  role="radio"
+                  aria-checked={speed === option}
+                  class:chosen={speed === option}
+                  onclick={() => (speed = option)}>{option}</button
+                >
+              {/each}
+            </span>
           {/if}
-        {/if}
-        {#if failure}
-          <span class="failure">The opponent could not move: {failure}</span>
-        {/if}
-      </div>
+        </div>
+      {/if}
+      {#if failure}
+        <p class="failure">The machine could not move: {failure}</p>
+      {/if}
+      {#if review === null && !game.outcome}
+        <Legend
+          entries={legend}
+          mine={attackOwner(viewer)}
+          theirs={attackOwner(1 - viewer)}
+        />
+      {/if}
+    </section>
 
-      <div class="legend small-caps">
-        <span><i class="key own"></i> you can attack</span>
-        <span><i class="key own-reach"></i> your attack zone</span>
-        <span><i class="key threat"></i> they can attack</span>
-        <span><i class="key threat-reach"></i> their attack zone</span>
-        <span><i class="key movable"></i> can move</span>
-        <span><i class="key dest"></i> destination</span>
-        <span><i class="key kill"></i> puts a target in reach</span>
+    <aside class="side">
+      <div class="panels">
+        {#each [1 - orientation, orientation] as player (player)}
+          <PlayerPanel
+            game={shown}
+            {player}
+            seat={seat(player)}
+            active={review === null && !game.outcome && game.currentPlayer === player}
+            status={thinking && game.currentPlayer === player ? 'thinking…' : undefined}
+          />
+        {/each}
       </div>
-    </main>
+      <EventLog
+        {turns}
+        onhighlight={(squares) => (highlight = squares)}
+        onreview={game.outcome ? startReview : undefined}
+        reviewing={review}
+      />
+    </aside>
   </div>
 </div>
 
@@ -443,245 +754,521 @@
   <RulesOverlay onclose={() => (showRules = false)} />
 {/if}
 
+{#if confirmRestart}
+  <Modal label="Restart the game" compact onclose={() => (confirmRestart = false)}>
+    <h2 class="head">Restart?</h2>
+    <div class="confirm">
+      <p>This game will be abandoned and a new one started from the opening position.</p>
+      <div class="actions">
+        <button class="primary" onclick={restart}>Restart</button>
+        <button data-autofocus onclick={() => (confirmRestart = false)}>Keep playing</button>
+      </div>
+    </div>
+  </Modal>
+{/if}
+
 <style>
   .screen {
+    --bar-h: 3.6rem;
     min-height: 100dvh;
     display: grid;
     grid-template-rows: auto 1fr;
   }
 
   .bar {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-    padding: 0.7rem 1.1rem;
-    border-bottom: 1px solid var(--gold-soft);
-    background: rgba(239, 230, 211, 0.7);
+    gap: 0.8rem;
+    padding: 0.5rem 1rem;
+    min-height: var(--bar-h);
+    border-bottom: 2px solid var(--copper);
+    background: rgba(241, 233, 212, 0.75);
+    position: relative;
+    z-index: 10;
   }
 
-  .titles {
+  .brand {
     display: flex;
-    align-items: baseline;
-    gap: 0.8rem;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 1.5rem;
   }
 
   h1 {
-    font-size: 1.35rem;
+    font-size: 1.6rem;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .banner {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.02rem;
+    background: var(--navy);
+    color: var(--peach);
+    padding: 0.3rem 0.95rem;
+    border-radius: 999px;
+    border: 1.5px solid var(--copper);
+    white-space: nowrap;
+  }
+
+  .banner .turn {
+    font-weight: 600;
+    opacity: 0.8;
+  }
+
+  .disc {
+    width: 0.8rem;
+    height: 0.8rem;
+    border-radius: 50%;
+    flex: none;
+  }
+
+  .disc.side-0 {
+    background: var(--ivory);
+    box-shadow: 0 0 0 2px var(--ivory-rim);
+  }
+
+  .disc.side-1 {
+    background: var(--umber);
+    box-shadow: 0 0 0 2px var(--peach);
   }
 
   .controls {
     display: flex;
-    align-items: center;
-    gap: 0.45rem;
-    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.4rem;
   }
 
-  .toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    font-size: 0.85rem;
-    color: var(--ink-soft);
-    cursor: pointer;
+  .options {
+    position: relative;
   }
 
+  .short {
+    display: none;
+  }
+
+  .catcher {
+    position: fixed;
+    inset: 0;
+    z-index: 29;
+  }
+
+  .popover {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.4rem);
+    z-index: 30;
+    display: grid;
+    gap: 0.55rem;
+    padding: 0.8rem 0.9rem;
+    min-width: 13rem;
+    box-shadow: var(--shadow-lift);
+  }
+
+  .popover hr {
+    border: none;
+    border-top: 1px solid var(--copper-soft);
+  }
+
+  /* The board takes whatever the window leaves it, in both directions: the
+     sidebar on the left, the prompt beneath. */
   .body {
     display: grid;
-    grid-template-columns: minmax(15rem, 19rem) 1fr;
-    gap: 1.2rem;
-    padding: 1.1rem;
-    align-items: start;
+    grid-template-columns: minmax(16rem, 21rem) minmax(0, 1fr);
+    grid-template-rows: 1fr auto;
+    grid-template-areas:
+      'side board'
+      'side prompt';
+    gap: 0.6rem 1.2rem;
+    padding: 0.8rem 1rem 0.9rem;
+    height: calc(100dvh - var(--bar-h));
+    min-height: 34rem;
   }
 
-  .side {
+  .board-area {
+    grid-area: board;
+    position: relative;
     display: grid;
-    gap: 0.7rem;
-    position: sticky;
-    top: 1rem;
-  }
-
-  .table {
-    display: grid;
-    justify-items: center;
-    gap: 0.8rem;
-    /* The board sizes its cell off this column's width, so the sidebar's
-       presence or absence is the only thing that has to be measured. */
-    container-type: inline-size;
+    place-items: center;
+    min-height: 0;
+    container-type: size;
+    --avail-w: 100cqw;
+    --avail-h: 100cqh;
   }
 
   .prompt {
-    padding: 0.7rem 1rem;
+    grid-area: prompt;
+    justify-self: center;
+    width: min(46rem, 100%);
+    /* Tall enough for every phase's prompt, so the board above never resizes
+       between one decision and the next. */
+    min-height: 12rem;
+    padding: 0.55rem 1rem 0.6rem;
     display: grid;
-    gap: 0.6rem;
+    align-content: start;
     justify-items: center;
+    gap: 0.4rem;
     text-align: center;
-    min-width: min(30rem, 100%);
   }
 
-  .line {
-    font-size: 1.02rem;
+  .side {
+    grid-area: side;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    min-height: 0;
+  }
+
+  .panels {
+    display: grid;
+    gap: 0.7rem;
+  }
+
+  .side :global(.log) {
+    flex: 1;
   }
 
   .steps {
     display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    font-size: 0.72rem;
-    color: var(--ink-faint);
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.2rem 0.9rem;
     list-style: none;
-  }
-
-  .steps li + li::before {
-    content: '→';
-    margin-right: 0.5rem;
-  }
-
-  .steps li.done {
-    text-decoration: line-through;
-  }
-
-  .steps li.now {
-    color: var(--ink);
-    font-weight: 600;
-  }
-
-  .guidance {
-    font-size: 0.86rem;
-    color: var(--ink-soft);
-    font-style: italic;
-    min-height: 1.2em;
-  }
-
-  .guidance.live {
-    color: var(--crimson);
-    font-style: normal;
-  }
-
-  .order {
-    display: grid;
-    gap: 0.15rem;
-    justify-items: center;
-    line-height: 1.25;
-  }
-
-  .order .note {
-    font-size: 0.74rem;
-    opacity: 0.75;
-    font-weight: 400;
-  }
-
-  .verdict {
     font-family: var(--font-display);
-    font-size: 1.1rem;
-    color: var(--crimson);
+    font-weight: 700;
+    font-size: 0.8rem;
+    color: var(--ink-faint);
   }
 
-  .actions {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-
-  .failure {
-    color: var(--crimson);
-    font-size: 0.85rem;
-  }
-
-  .legend {
-    display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-
-  .legend span {
+  .steps li {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
   }
 
-  .key {
-    width: 12px;
-    height: 12px;
-    border-radius: 2px;
-    display: inline-block;
+  .steps li.now {
+    color: var(--ink);
   }
 
-  .key.own {
-    border: 2px solid var(--gold);
-    background: rgba(185, 143, 46, 0.2);
-  }
-
-  .key.threat {
-    border: 2px solid var(--crimson);
-    background: rgba(163, 34, 34, 0.22);
-  }
-
-  .key.own-reach {
-    background: repeating-linear-gradient(
-      -45deg,
-      rgba(185, 143, 46, 0.55) 0 2px,
-      transparent 2px 6px
-    );
-    border: 1px solid var(--gold-soft);
-  }
-
-  .key.threat-reach {
-    background: repeating-linear-gradient(
-      45deg,
-      rgba(163, 34, 34, 0.5) 0 2px,
-      transparent 2px 6px
-    );
-    border: 1px solid rgba(163, 34, 34, 0.4);
-  }
-
-  .key.movable {
-    box-shadow: inset 0 0 0 2px var(--gold);
-  }
-
-  .key.kill {
-    border-radius: 50%;
-    background: var(--crimson);
-    opacity: 0.7;
-  }
-
-  .key.dest {
-    border-radius: 50%;
-    background: var(--azure);
+  .steps li.done {
     opacity: 0.55;
   }
 
-  @media (max-width: 900px) {
-    .body {
-      grid-template-columns: 1fr;
-    }
+  /* The sheet numbers its steps in peach diamonds on a copper edge. */
+  .diamond {
+    display: inline-grid;
+    place-items: center;
+    width: 1.15rem;
+    height: 1.15rem;
+    transform: rotate(45deg);
+    border: 1.5px solid var(--copper);
+    background: var(--parchment);
+    flex: none;
+  }
 
-    .side {
-      position: static;
-      grid-template-columns: 1fr 1fr;
-    }
+  .diamond span {
+    transform: rotate(-45deg);
+    font-size: 0.72rem;
+    line-height: 1;
+  }
 
-    .side :global(.log) {
-      grid-column: 1 / -1;
+  .now .diamond {
+    background: var(--peach);
+  }
+
+  .step-token {
+    width: 1.15rem;
+    height: 1.15rem;
+  }
+
+  .line {
+    font-size: 1.04rem;
+    font-weight: 600;
+  }
+
+  /* Two lines are always kept for the hint, so the panel never jumps. */
+  .guidance {
+    font-size: 0.88rem;
+    color: var(--ink-soft);
+    font-style: italic;
+    min-height: 2.6em;
+    line-height: 1.3;
+    max-width: 38rem;
+  }
+
+  .guidance.live {
+    color: var(--ink);
+    font-style: normal;
+    font-weight: 600;
+  }
+
+  .actions {
+    display: flex;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    min-height: 2.3rem;
+  }
+
+  .count {
+    font-weight: 700;
+    min-width: 4rem;
+  }
+
+  .speed {
+    display: inline-flex;
+    border: 1.5px solid var(--copper);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .speed button {
+    border: none;
+    border-radius: 0;
+    text-transform: capitalize;
+    padding: 0.35rem 0.7rem;
+  }
+
+  .speed button + button {
+    border-left: 1px solid var(--copper-soft);
+  }
+
+  .speed button.chosen {
+    background: var(--navy);
+    color: var(--peach);
+  }
+
+  .failure {
+    color: var(--attack-deep);
+    font-size: 0.85rem;
+  }
+
+  .end-card {
+    position: absolute;
+    z-index: 20;
+    width: min(26rem, 92%);
+    box-shadow: var(--shadow-lift);
+    animation: rise 0.35s ease-out;
+  }
+
+  .end-card .head {
+    font-size: 1.5rem;
+  }
+
+  .end-body {
+    display: grid;
+    gap: 0.8rem;
+    justify-items: center;
+    padding: 0.9rem 1.1rem 1rem;
+    text-align: center;
+  }
+
+  .verdict {
+    font-size: 1.05rem;
+    font-weight: 600;
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.2rem 0.8rem;
+    font-size: 0.9rem;
+    text-align: left;
+  }
+
+  .stats dt {
+    font-weight: 800;
+  }
+
+  .link {
+    background: none;
+    border: none;
+    text-decoration: underline;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+  }
+
+  .link:hover:not(:disabled) {
+    background: none;
+    color: var(--ink);
+  }
+
+  .confirm {
+    display: grid;
+    gap: 1rem;
+    padding: 1rem 1.2rem 1.2rem;
+  }
+
+  @keyframes rise {
+    from {
+      transform: translateY(14px);
+      opacity: 0;
     }
   }
 
-  /* On a phone every millimetre of padding comes straight off the board. */
-  @media (max-width: 560px) {
+  /* A phone or a tablet held upright: the board first, the prompt under it,
+     the panels and the dispatches below that. */
+  @media (max-width: 900px) {
+    .screen {
+      --bar-h: 3.1rem;
+    }
+
     .bar {
-      padding: 0.6rem 0.7rem;
+      grid-template-columns: auto 1fr auto;
+      padding: 0.4rem 0.6rem;
+      gap: 0.5rem;
+    }
+
+    .wide {
+      display: none;
+    }
+
+    h1 {
+      font-size: 1.15rem;
+    }
+
+    .banner {
+      justify-self: center;
+      font-size: 0.85rem;
+      padding: 0.2rem 0.65rem;
+    }
+
+    .banner .turn {
+      display: none;
+    }
+
+    .controls button {
+      padding: 0.35rem 0.6rem;
+      font-size: 0.85rem;
     }
 
     .body {
-      gap: 0.8rem;
-      padding: 0.6rem;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto auto auto;
+      grid-template-areas: 'board' 'prompt' 'side';
+      height: auto;
+      min-height: 0;
+      padding: 0.5rem 0.5rem 1rem;
+      gap: 0.5rem;
+    }
+
+    .board-area {
+      container-type: inline-size;
+      --avail-h: calc(100svh - var(--bar-h) - 12.5rem);
     }
 
     .prompt {
-      padding: 0.6rem 0.7rem;
+      min-height: 8.6rem;
+      padding: 0.45rem 0.6rem;
+    }
+
+    .steps {
+      gap: 0.5rem;
+      font-size: 0.72rem;
+    }
+
+    .panels {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.45rem;
+    }
+
+    .side :global(.log ol) {
+      max-height: 16rem;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .full {
+      display: none;
+    }
+
+    .short {
+      display: inline;
+      font-size: 1.05rem;
+      line-height: 1;
+    }
+
+    svg.short {
+      width: 1.05rem;
+      height: 1.05rem;
+      vertical-align: -0.2rem;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .controls button {
+      min-width: 2.3rem;
+    }
+  }
+
+  /* A phone on its side: the board down the left at full height, everything
+     else in a column beside it. */
+  @media (max-height: 540px) and (orientation: landscape) {
+    .screen {
+      --bar-h: 2.8rem;
+    }
+
+    .bar {
+      padding: 0.25rem 0.6rem;
+    }
+
+    .wide {
+      display: none;
+    }
+
+    h1 {
+      font-size: 1.1rem;
+    }
+
+    .banner .turn {
+      display: none;
+    }
+
+    .body {
+      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-rows: auto 1fr;
+      grid-template-areas:
+        'board prompt'
+        'board side';
+      height: calc(100dvh - var(--bar-h));
+      min-height: 0;
+      padding: 0.3rem 0.5rem;
+      gap: 0.4rem 0.6rem;
+    }
+
+    .board-area {
+      container-type: normal;
+      --avail-w: 62vw;
+      --avail-h: calc(100dvh - var(--bar-h) - 0.6rem);
+    }
+
+    .prompt {
+      min-height: 0;
+      width: 100%;
+    }
+
+    .steps {
+      display: none;
+    }
+
+    .side {
+      overflow-y: auto;
+    }
+
+    .panels {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.4rem;
     }
   }
 </style>

@@ -1,4 +1,4 @@
-// Turns engine events into the sentences shown in the sidebar.
+// Turns engine events and previews into the sentences the interface shows.
 
 import { COLUMN_LETTERS, PIECE_NAMES, PLAYER_NAMES, TOKEN_NAMES, pieceAt } from './types'
 import type {
@@ -7,17 +7,20 @@ import type {
   GameState,
   MoveOutcome,
   Piece,
+  Shot,
   SlideOutcome,
   Square,
   Threat,
   TokenKind,
 } from './types'
+import type { Turn } from './turns'
 
 export interface LogEntry {
-  player: number
   text: string
-  /** Set on entries that removed something, so the log can mark them. */
-  grave?: boolean
+  /** The squares the entry is about, lit on the board while it is hovered. */
+  squares: Square[]
+  /** A kill or a destroyed castle, an Attack that found nothing, or the end. */
+  tone?: 'kill' | 'quiet' | 'outcome'
 }
 
 /** Columns run a-i and rows 1-7 up from Ivory's back row, as the rules sheet
@@ -46,50 +49,65 @@ export function describeEvent(event: GameEvent): LogEntry | null {
   switch (event.type) {
     case 'slid':
       return {
-        player: event.player,
-        text: `slides the ${TOKEN_NAMES[event.token]} token to ${lineName(event.token, event.to)}`,
+        text: `Slides the ${TOKEN_NAMES[event.token]} token to ${lineName(event.token, event.to)}`,
+        squares: [],
       }
     case 'moved': {
-      const verb = event.token === 'march' ? 'marches' : 'flanks'
+      const verb = event.token === 'march' ? 'Marches' : 'Flanks'
       return {
-        player: event.player,
         text: `${verb} ${PIECE_NAMES[event.kind]} ${squareName(event.from)} → ${squareName(event.to)}`,
+        squares: [event.from, event.to],
       }
     }
     case 'passed':
-      return {
-        player: event.player,
-        text: `takes no action with the ${TOKEN_NAMES[event.token]} token`,
-      }
+      return { text: `Takes no action with the ${TOKEN_NAMES[event.token]} token`, squares: [] }
     case 'attacked':
-      return {
-        player: event.player,
-        text: `attacks along ${lineName(event.token, event.line)}`,
-      }
+      return { text: `Attacks along ${lineName(event.token, event.line)}`, squares: [] }
     case 'struck':
       return {
-        player: event.player,
         text: `${PIECE_NAMES[event.kind]} ${squareName(event.from)} ${describeCasualty(event.casualty, event.target)}`,
-        grave: true,
+        squares: [event.from, event.target],
+        tone: 'kill',
       }
     case 'heldFire':
       return {
-        player: event.player,
         text: `${PIECE_NAMES[event.kind]} ${squareName(event.from)} holds its fire`,
+        squares: [event.from],
       }
     case 'gameOver':
-      // No speaker prefix: the sentence already names the winner.
       return {
-        player: -1,
         text:
           event.outcome.type === 'winner'
             ? `${PLAYER_NAMES[event.outcome.player]} wins`
-            : 'the campaign ends in a draw',
-        grave: true,
+            : 'The game ends in a draw',
+        squares: [],
+        tone: 'outcome',
       }
     case 'turnEnded':
       return null
   }
+}
+
+/** A turn's dispatches. An Attack that found no one to ask is folded into one
+    quiet line rather than announced as though something followed. One still
+    waiting on its first attacker has simply not been answered yet. */
+export function describeTurn(turn: Turn): LogEntry[] {
+  const entries: LogEntry[] = []
+  turn.events.forEach((event, index) => {
+    const entry = describeEvent(event)
+    if (!entry) return
+    if (event.type === 'attacked') {
+      const next = turn.events[index + 1]
+      const waiting = next === undefined && turn.after === null
+      const answered = next?.type === 'struck' || next?.type === 'heldFire'
+      if (!answered && !waiting) {
+        entries.push({ ...entry, text: `${entry.text}, with nothing in reach`, tone: 'quiet' })
+        return
+      }
+    }
+    entries.push(entry)
+  })
+  return entries
 }
 
 /** Squares emptied by these events, for the strike flash on the board. */
@@ -115,7 +133,9 @@ function targetNames(state: GameState, threat: Threat): string[] {
 
 /** The sentence under the board while a destination is under the cursor. */
 export function describeMoveOutcome(state: GameState, outcome: MoveOutcome): string {
-  const journey = `${squareName(outcome.from)} → ${squareName(outcome.to)}`
+  const piece = pieceAt(state, outcome.from)
+  const name = piece ? `${PIECE_NAMES[piece.kind]} ` : ''
+  const journey = `${name}${squareName(outcome.from)} → ${squareName(outcome.to)}`
   const targets = targetNames(state, outcome)
   if (targets.length === 0) return `${journey}.`
   return `${journey}, and your Attack then bears on ${joinList(targets)}.`
@@ -134,4 +154,26 @@ export function describeSlideOutcome(state: GameState, outcome: SlideOutcome): s
       ? 'next turn the Attack there bears on nothing, as the board stands'
       : `next turn the Attack there bears on ${joinList(targets)}, as the board stands`
   return `${movers}; ${attack}.`
+}
+
+/** Who in an Attack can take what stands on `square`, as one sentence:
+    "Umber's Attack along column e next turn: Battering Ram e6 can destroy this
+    castle." Null when no attacker reaches it. */
+export function describeThreat(
+  state: GameState,
+  square: Square,
+  shots: Shot[],
+  attack: string,
+): string | null {
+  const attackers = shots.filter((shot) =>
+    shot.targets.some((target) => target.row === square.row && target.col === square.col),
+  )
+  if (attackers.length === 0) return null
+  const names = joinList(attackers.map((shot) => `${PIECE_NAMES[shot.kind]} ${squareName(shot.from)}`))
+  const piece = pieceAt(state, square)
+  const castle = attackers[0].kind === 'trebuchet' || attackers[0].kind === 'batteringRam'
+  const object = castle
+    ? 'destroy this castle'
+    : `kill this ${piece ? PIECE_NAMES[piece.kind].toLowerCase() : 'piece'}`
+  return `${attack}: ${names} can ${object}.`
 }

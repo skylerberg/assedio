@@ -1,12 +1,20 @@
 <script lang="ts">
   import GameScreen from './components/GameScreen.svelte'
-  import type { GameSetup } from './components/GameScreen.svelte'
   import MainMenu from './components/MainMenu.svelte'
+  import { loadGame } from './data/session'
+  import type { GameSetup, SavedGame } from './data/session'
   import { initEngine } from './engine/wasmEngine'
 
   let ready = $state(false)
   let failure: string | null = $state(null)
-  let setup: GameSetup | null = $state(null)
+  /** The game on screen, and the save it picks up from when it is resumed. */
+  let playing: { setup: GameSetup; saved: SavedGame | null } | null = $state(null)
+  let saved: SavedGame | null = $state(unfinished())
+
+  function unfinished(): SavedGame | null {
+    const save = loadGame()
+    return save && !save.game.outcome ? save : null
+  }
 
   initEngine().then(
     () => (ready = true),
@@ -24,12 +32,23 @@
   <div class="notice">
     <p>Mustering…</p>
   </div>
-{:else if setup}
-  {#key setup}
-    <GameScreen {setup} onexit={() => (setup = null)} />
+{:else if playing}
+  {#key playing}
+    <GameScreen
+      setup={playing.setup}
+      saved={playing.saved}
+      onexit={() => {
+        playing = null
+        saved = unfinished()
+      }}
+    />
   {/key}
 {:else}
-  <MainMenu onstart={(chosen) => (setup = chosen)} />
+  <MainMenu
+    {saved}
+    onstart={(setup) => (playing = { setup, saved: null })}
+    onresume={(save) => (playing = { setup: save.setup, saved: save })}
+  />
 {/if}
 
 <style>

@@ -1,158 +1,207 @@
 <script lang="ts">
   import PieceIcon from './PieceIcon.svelte'
+  import TerrainIcon from './TerrainIcon.svelte'
   import TokenIcon from './TokenIcon.svelte'
   import { lineName } from '../data/log'
-  import {
-    CASTLE_COLS,
-    PLAYER_NAMES,
-    TOKEN_KINDS,
-    siegeEngines,
-    tokenOf,
-  } from '../data/types'
+  import { CASTLE_COLS, PLAYER_NAMES, TOKEN_KINDS, TOKEN_NAMES, siegeEngines, tokenOf } from '../data/types'
   import type { GameState, PieceKind } from '../data/types'
 
   interface Props {
     game: GameState
     player: number
     seat: string
+    /** Whether this side is to move. */
     active: boolean
-    thinking?: boolean
+    /** A word on what the side is doing, shown beside the seat. */
+    status?: string
   }
 
-  let { game, player, seat, active, thinking = false }: Props = $props()
+  let { game, player, seat, active, status }: Props = $props()
 
   let engines = $derived(siegeEngines(game, player))
   const SIEGE: PieceKind[] = ['trebuchet', 'batteringRam']
+  const SIEGE_NAMES: Record<string, string> = { trebuchet: 'Trebuchet', batteringRam: 'Battering Ram' }
 </script>
 
-<div class="panel player" class:active class:umber={player === 1}>
-  <header>
-    <h3>{PLAYER_NAMES[player]}</h3>
-    <span class="seat">{seat}{thinking ? ' · thinking…' : ''}</span>
+<section class="panel player" class:active aria-label={`${PLAYER_NAMES[player]}, ${seat}`}>
+  <header class="head">
+    <span class={`disc side-${player}`}></span>
+    <span class="name">{PLAYER_NAMES[player]}</span>
+    <span class="seat">{seat}{status ? ` · ${status}` : ''}</span>
   </header>
 
-  <div class="row">
-    <span class="small-caps">Castles</span>
-    <span class="pips">
-      {#each CASTLE_COLS as _, index (index)}
-        <span class="pip" class:gone={!game.castles[player][index]}></span>
-      {/each}
-    </span>
-  </div>
+  <div class="body">
+    <div class="row">
+      <span class="small-caps">Castles</span>
+      <span class="icons">
+        {#each CASTLE_COLS as _, index (index)}
+          {@const standing = game.castles[player][index]}
+          <span
+            class="castle"
+            class:gone={!standing}
+            title={standing ? 'Standing' : 'Destroyed — now a hilltop'}
+          >
+            <TerrainIcon kind={standing ? 'castle' : 'hilltop'} />
+          </span>
+        {/each}
+      </span>
+    </div>
 
-  <div class="row">
-    <span class="small-caps">Siege</span>
-    <span class="engines">
-      {#each SIEGE as kind (kind)}
-        <span class="engine" class:gone={!engines.includes(kind)} title={kind}>
-          <PieceIcon {kind} owner={player} size={20} />
+    <div class="row">
+      <span class="small-caps">Siege</span>
+      <span class="icons">
+        {#each SIEGE as kind (kind)}
+          {@const alive = engines.includes(kind)}
+          <span class="engine" class:gone={!alive} title={`${SIEGE_NAMES[kind]}${alive ? '' : ' — destroyed'}`}>
+            <PieceIcon {kind} owner={player} />
+          </span>
+        {/each}
+      </span>
+    </div>
+
+    <div class="tokens">
+      {#each TOKEN_KINDS as kind (kind)}
+        {@const token = tokenOf(game, player, kind)}
+        <span class="chip" class:armed={token.side === 'attack'}>
+          <span class="chip-icon"><TokenIcon {kind} side={token.side} owner={player} /></span>
+          <span>
+            <strong>{TOKEN_NAMES[kind]}</strong>
+            {token.side === 'attack' ? 'attacks' : 'moves'} · {lineName(kind, token.line)}
+          </span>
         </span>
       {/each}
-    </span>
+    </div>
   </div>
-
-  <div class="tokens">
-    {#each TOKEN_KINDS as kind (kind)}
-      {@const token = tokenOf(game, player, kind)}
-      <span class="token-chip" class:armed={token.side === 'attack'}>
-        <TokenIcon {kind} side={token.side} owner={player} size={18} />
-        <span class="where">{lineName(kind, token.line)}</span>
-      </span>
-    {/each}
-  </div>
-</div>
+</section>
 
 <style>
   .player {
-    padding: 0.7rem 0.85rem;
-    display: grid;
-    gap: 0.45rem;
-    border-left: 3px solid var(--ivory-edge);
-  }
-
-  .player.umber {
-    border-left-color: var(--umber);
+    container-type: inline-size;
+    transition: box-shadow 0.2s;
   }
 
   .player.active {
-    box-shadow: 0 0 0 2px var(--gold-soft), var(--shadow-soft);
+    box-shadow:
+      0 0 0 3px var(--peach),
+      0 0 0 5px var(--copper),
+      var(--shadow-soft);
   }
 
-  header {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.5rem;
+  .head {
+    display: flex !important;
+    align-items: center;
+    gap: 0.45rem;
+    text-align: left !important;
   }
 
-  h3 {
-    font-size: 1.05rem;
+  .name {
+    flex: 1;
   }
 
   .seat {
-    font-size: 0.8rem;
-    color: var(--ink-faint);
+    font-size: 0.78rem;
+    font-weight: 600;
     font-style: italic;
+    opacity: 0.85;
+  }
+
+  .disc {
+    width: 0.85rem;
+    height: 0.85rem;
+    border-radius: 50%;
+    flex: none;
+  }
+
+  .disc.side-0 {
+    background: var(--ivory);
+    box-shadow: 0 0 0 2px var(--ivory-rim);
+  }
+
+  .disc.side-1 {
+    background: var(--umber);
+    box-shadow: 0 0 0 2px var(--peach);
+  }
+
+  .body {
+    display: grid;
+    gap: 0.4rem;
+    padding: 0.55rem 0.75rem 0.65rem;
   }
 
   .row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 0.6rem;
+    gap: 0.5rem;
   }
 
-  .pips {
+  .icons {
     display: flex;
-    gap: 5px;
+    gap: 0.35rem;
   }
 
-  .pip {
-    width: 13px;
-    height: 13px;
-    border-radius: 2px;
-    background: var(--ink-soft);
+  .castle {
+    width: 1.7rem;
+    height: 1.55rem;
   }
 
-  .pip.gone {
-    background: none;
-    border: 1px dashed var(--ink-faint);
-    opacity: 0.5;
+  .engine {
+    width: 1.55rem;
+    height: 1.55rem;
   }
 
-  .engines {
-    display: flex;
-    gap: 6px;
-  }
-
-  .engine.gone {
-    opacity: 0.22;
+  .gone {
+    opacity: 0.35;
+    filter: grayscale(0.7);
   }
 
   .tokens {
     display: flex;
-    gap: 0.4rem;
     flex-wrap: wrap;
+    gap: 0.35rem;
   }
 
-  .token-chip {
+  .chip {
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
-    padding: 0.15rem 0.4rem;
+    padding: 0.1rem 0.5rem 0.1rem 0.15rem;
     border-radius: 999px;
-    border: 1px solid var(--gold-soft);
-    font-size: 0.78rem;
-    color: var(--azure);
-  }
-
-  .token-chip.armed {
-    color: var(--crimson);
-    border-color: rgba(163, 34, 34, 0.4);
-    background: rgba(163, 34, 34, 0.07);
-  }
-
-  .where {
+    border: 1.5px solid var(--copper-soft);
+    font-size: 0.8rem;
+    font-weight: 500;
     color: var(--ink-soft);
+    line-height: 1.2;
+  }
+
+  .chip strong {
+    color: var(--ink);
+  }
+
+  .chip.armed {
+    border-color: var(--attack);
+    background: rgba(227, 38, 43, 0.07);
+  }
+
+  .chip-icon {
+    width: 1.35rem;
+    height: 1.35rem;
+    flex: none;
+  }
+
+  /* Beside the board on a phone the panel is a narrow strip: the labels go
+     and the icons carry it. */
+  @container (max-width: 15rem) {
+    .small-caps {
+      display: none;
+    }
+
+    .row {
+      justify-content: flex-start;
+    }
+
+    .chip {
+      font-size: 0.72rem;
+    }
   }
 </style>

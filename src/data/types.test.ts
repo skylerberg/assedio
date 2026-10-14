@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { castleSlotAt, isHilltop, squareKey, zoneSquares } from './types'
+import { attackZone, castleSlotAt, isHilltop } from './types'
 import type { GameState } from './types'
 
 /** Only the castles matter to the terrain rules under test. */
@@ -8,35 +8,20 @@ function board(castles: boolean[][]): GameState {
 }
 
 describe('attack zones', () => {
-  it('matches the printed diagrams', () => {
-    const centre = { row: 3, col: 3 }
-    const keys = (kind: Parameters<typeof zoneSquares>[1]) =>
-      zoneSquares(centre, kind).map(squareKey).sort()
+  const offsets = (kind: Parameters<typeof attackZone>[0]) =>
+    attackZone(kind)
+      .map(([row, col]) => `${row},${col}`)
+      .sort()
 
-    expect(keys('swordsman')).toEqual(['2,3', '3,2', '3,4', '4,3'].sort())
-    expect(keys('flail')).toEqual(['2,2', '2,4', '4,2', '4,4'].sort())
-    expect(keys('spearman')).toEqual(['1,3', '3,1', '3,5', '5,3'].sort())
-    expect(keys('archer')).toEqual(['1,1', '1,5', '5,1', '5,5'].sort())
+  it('matches the printed diagrams', () => {
+    expect(offsets('swordsman')).toEqual(['-1,0', '0,-1', '0,1', '1,0'])
+    expect(offsets('flail')).toEqual(['-1,-1', '-1,1', '1,-1', '1,1'])
+    expect(offsets('spearman')).toEqual(['-2,0', '0,-2', '0,2', '2,0'])
+    expect(offsets('archer')).toEqual(['-2,-2', '-2,2', '2,-2', '2,2'])
   })
 
   it('gives a rock no zone at all', () => {
-    expect(zoneSquares({ row: 3, col: 3 }, 'rock')).toEqual([])
-  })
-
-  it('clips targets that fall off the board', () => {
-    expect(zoneSquares({ row: 0, col: 0 }, 'archer').map(squareKey)).toEqual(['2,2'])
-    // Nine columns, so col 8 is the last one.
-    expect(zoneSquares({ row: 3, col: 8 }, 'archer').map(squareKey).sort()).toEqual(
-      ['1,6', '5,6'].sort(),
-    )
-  })
-
-  it('gives the centre trebuchet a line on every castle', () => {
-    const castles = zoneSquares({ row: 3, col: 4 }, 'trebuchet')
-      .filter((square) => castleSlotAt(square) !== null)
-      .map(squareKey)
-      .sort()
-    expect(castles).toEqual(['0,1', '0,4', '0,7', '6,1', '6,4', '6,7'])
+    expect(attackZone('rock')).toEqual([])
   })
 })
 

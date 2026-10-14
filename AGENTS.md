@@ -21,12 +21,16 @@ Rust workspace plus a Svelte frontend:
 - `assedio-wasm/` — wasm-bindgen bindings, JSON in and JSON out
 - `assedio-runner/` — CLI for simulation, replay and benchmarking
 - `src/` — Svelte 5 + TypeScript frontend
-  - `src/data/` — TypeScript mirror of the wire format, and the log formatter
+  - `src/data/` — TypeScript mirror of the wire format, the log formatter,
+    `turns.ts` (the game as a list of turns, piece ids for animation, the
+    end-of-game summary) and `session.ts` (the autosave)
   - `src/engine/` — wasm loader and wrappers
   - `src/ai/` — the Web Worker the search runs in, and its controller
-  - `src/components/` — board, panels, rules sheet, menu
-  - `src/assets/` — the designer's piece and token art, one PNG per side, and
-    the rock, which belongs to neither
+  - `src/components/` — board, panels, rules sheet, menu; `Mark.svelte` draws
+    every marking the board puts on a square, and the legend reuses it
+  - `src/assets/` — the designer's piece and token art, one PNG per side,
+    recoloured to the rules sheet's palette, and the rock, which belongs to
+    neither
   - `src/wasm-pkg/` — generated wasm output (gitignored)
 
 ## Build & Run Commands
@@ -54,6 +58,19 @@ Rust workspace plus a Svelte frontend:
   everything that carries no decision, so `Phase::Activate` always has a
   Move-side token at the head of the queue; an Attack side goes to
   `Phase::Attack`, which walks the line and stops on each piece with a target.
+- The board never works out a rule for itself. A hovered piece's Attack Zone
+  comes from `piece_reach` and who threatens a square from `attack_shots`, both
+  in `preview.rs`; the TypeScript zone table only draws the rules sheet's
+  diagrams.
+- The activation order is never put as a question. While it is open,
+  `GameScreen` offers the moves of one order and the first attacker's targets
+  of the other on the same board, and plays the `order` choice in front of
+  whichever the player takes.
+- The game in progress is saved to `localStorage` (`session.ts`) after every
+  decision. Bump `VERSION` there whenever `GameState` or `Turn` changes shape,
+  or an old save will be read as the new one.
+- `GameScreen` holds the game, its turns and its piece ids as `$state.raw` and
+  only ever replaces them, so an undo snapshot shares them instead of copying.
 - Rocks are pieces with the `NEUTRAL` owner, so they block moves and fall to
   attacks through the same code as everything else. Anything that indexes by
   `owner` — piece art, a player's colour — has to allow for them.

@@ -13,7 +13,8 @@ pub mod search;
 pub mod types;
 
 pub use preview::{
-    forced_order, move_outcomes, pending_attackers, slide_outcomes, MoveOutcome, SlideOutcome,
+    attack_shots, forced_order, move_outcomes, pending_attackers, piece_reach, slide_outcomes,
+    MoveOutcome, PieceReach, Shot, SlideOutcome,
 };
 pub use rules::{
     apply, apply_logged, apply_with, attack_preview, initial_state, legal_choices,
