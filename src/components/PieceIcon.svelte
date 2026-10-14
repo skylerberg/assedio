@@ -7,6 +7,7 @@
   import batteringRamUmber from '../assets/pieces/batteringRam-umber.png'
   import flailIvory from '../assets/pieces/flail-ivory.png'
   import flailUmber from '../assets/pieces/flail-umber.png'
+  import rock from '../assets/pieces/rock.svg'
   import spearmanIvory from '../assets/pieces/spearman-ivory.png'
   import spearmanUmber from '../assets/pieces/spearman-umber.png'
   import swordsmanIvory from '../assets/pieces/swordsman-ivory.png'
@@ -15,7 +16,7 @@
   import trebuchetUmber from '../assets/pieces/trebuchet-umber.png'
 
   /** Indexed by owner, so the tuples are [ivory, umber]. */
-  const ART: Record<PieceKind, [string, string]> = {
+  const ART: Record<Exclude<PieceKind, 'rock'>, [string, string]> = {
     swordsman: [swordsmanIvory, swordsmanUmber],
     flail: [flailIvory, flailUmber],
     spearman: [spearmanIvory, spearmanUmber],
@@ -35,11 +36,14 @@
   }
 
   let { kind, owner = 1, size }: Props = $props()
+
+  /** A rock belongs to neither side and looks the same to both. */
+  let src = $derived(kind === 'rock' ? rock : ART[kind][owner])
 </script>
 
 <img
   class="piece-icon"
-  src={ART[kind][owner]}
+  {src}
   alt=""
   draggable="false"
   style={size === undefined ? undefined : `width:${size}px;height:${size}px`}

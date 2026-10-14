@@ -1,12 +1,12 @@
 //! Browser bindings. Every function takes and returns JSON so the TypeScript
 //! side never has to mirror a Rust memory layout.
 
-use command_slide_core::rand_core::SeedableRng;
-use command_slide_core::preview::{forced_order, move_outcomes, pending_attackers, slide_outcomes};
-use command_slide_core::rules::{apply_logged, attack_preview, GameEvent};
-use command_slide_core::search::{Ai, AiConfig};
-use command_slide_core::types::{Choice, GameState, Square, TokenKind, WALL_SQUARES};
-use command_slide_core::{initial_state, legal_choices, AttackReach};
+use assedio_core::preview::{forced_order, move_outcomes, pending_attackers, slide_outcomes};
+use assedio_core::rand_core::SeedableRng;
+use assedio_core::rules::{apply_logged, attack_preview, GameEvent};
+use assedio_core::search::{Ai, AiConfig};
+use assedio_core::types::{Choice, GameState, Square, TokenKind};
+use assedio_core::{initial_state, legal_choices, AttackReach};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 use wyrand::WyRand;
@@ -39,10 +39,9 @@ struct StateWithEvents {
 #[serde(rename_all = "camelCase")]
 struct AttackPreview {
     attackers: Vec<Square>,
-    covered: Vec<Square>,
+    zone: Vec<Square>,
     threatened_pieces: Vec<Square>,
     threatened_castles: Vec<Square>,
-    threatened_walls: Vec<Square>,
 }
 
 #[derive(Serialize)]
@@ -71,8 +70,8 @@ pub fn wasm_apply_choice(state_json: &str, choice_json: &str) -> String {
     to_json(&StateWithEvents { state, events })
 }
 
-/// What an attack with this player's token bears on right now. Each attacker
-/// takes one of these, so it is the volley's reach rather than its casualty
+/// What an Attack with this player's token bears on right now. Each attacker
+/// takes one of these, so it is the Attack's reach rather than its casualty
 /// list. The UI draws it as a threat overlay.
 #[wasm_bindgen]
 pub fn wasm_attack_preview(state_json: &str, player: u8, token_json: &str) -> String {
@@ -82,7 +81,7 @@ pub fn wasm_attack_preview(state_json: &str, player: u8, token_json: &str) -> St
     let enemy = GameState::opponent(player);
     to_json(&AttackPreview {
         attackers: AttackReach::squares(reach.attackers).collect(),
-        covered: AttackReach::squares(reach.covered).collect(),
+        zone: AttackReach::squares(reach.zone).collect(),
         threatened_pieces: AttackReach::squares(reach.pieces).collect(),
         threatened_castles: reach
             .castles
@@ -90,13 +89,6 @@ pub fn wasm_attack_preview(state_json: &str, player: u8, token_json: &str) -> St
             .enumerate()
             .filter(|(_, &hit)| hit)
             .map(|(index, _)| GameState::castle_square(enemy, index))
-            .collect(),
-        threatened_walls: reach
-            .walls
-            .iter()
-            .enumerate()
-            .filter(|(_, &hit)| hit)
-            .map(|(index, _)| WALL_SQUARES[index])
             .collect(),
     })
 }
@@ -109,7 +101,7 @@ pub fn wasm_forced_order(state_json: &str) -> String {
 }
 
 /// Every move in the current activation, paired with what it puts within reach
-/// of the volley still to come.
+/// of the Attack still to come.
 #[wasm_bindgen]
 pub fn wasm_move_outcomes(state_json: &str) -> String {
     to_json(&move_outcomes(&parse_state(state_json)))
@@ -122,7 +114,7 @@ pub fn wasm_slide_outcomes(state_json: &str) -> String {
     to_json(&slide_outcomes(&parse_state(state_json)))
 }
 
-/// The attackers of the volley in progress that have still to fire.
+/// The attackers of the Attack in progress that have still to choose.
 #[wasm_bindgen]
 pub fn wasm_pending_attackers(state_json: &str) -> String {
     to_json(&pending_attackers(&parse_state(state_json)))

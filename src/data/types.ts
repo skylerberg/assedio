@@ -1,22 +1,17 @@
-// Mirrors the serde output of `command-slide-core`. The shapes here are pinned
-// on the Rust side by `command-slide-core/tests/wire_format.rs`; change one and
-// change the other.
+// Mirrors the serde output of `assedio-core`. The shapes here are pinned on the
+// Rust side by `assedio-core/tests/wire_format.rs`; change one and change the
+// other.
 
-/** Nine files across, seven ranks up: the outer file on each wing is empty. */
+/** Nine columns across, seven rows up: the outer column on each wing is empty. */
 export const BOARD_ROWS = 7
 export const BOARD_COLS = 9
 export const CASTLE_COLS = [1, 4, 7]
 export const BACK_ROW = [0, 6]
 export const HILLTOP_ROW = 3
 export const HILLTOP_COLS = CASTLE_COLS
-/** The walls filling the middle row between the hilltops, in slot order. */
-export const WALL_SQUARES: Square[] = [
-  { row: HILLTOP_ROW, col: 2 },
-  { row: HILLTOP_ROW, col: 3 },
-  { row: HILLTOP_ROW, col: 5 },
-  { row: HILLTOP_ROW, col: 6 },
-]
-export const FILE_LETTERS = 'abcdefghi'
+/** The owner of a rock, which belongs to neither side. */
+export const NEUTRAL = 2
+export const COLUMN_LETTERS = 'abcdefghi'
 
 export type PieceKind =
   | 'swordsman'
@@ -25,9 +20,11 @@ export type PieceKind =
   | 'archer'
   | 'trebuchet'
   | 'batteringRam'
+  | 'rock'
 
 export interface Piece {
   kind: PieceKind
+  /** A player, or `NEUTRAL` for a rock. */
   owner: number
 }
 
@@ -36,44 +33,40 @@ export interface Square {
   col: number
 }
 
-export type TokenKind = 'row' | 'column'
-export type TokenFace = 'movement' | 'attack'
+export type TokenKind = 'march' | 'flank'
+export type TokenSide = 'move' | 'attack'
 
 export interface Token {
   line: number
-  face: TokenFace
+  side: TokenSide
 }
 
 export type Phase = 'slide' | 'order' | 'activate' | 'attack' | 'gameOver'
 
 export type Choice =
-  | { type: 'slide'; token: TokenKind; line: number }
+  | { type: 'slide'; line: number }
   | { type: 'order'; first: TokenKind }
   | { type: 'move'; from: Square; to: Square }
   | { type: 'pass' }
   | { type: 'attack'; from: Square; target: Square }
   | { type: 'holdFire'; from: Square }
 
-/** What one shot destroyed. A shot destroys exactly one thing. */
-export type Casualty =
-  | { type: 'piece'; piece: Piece }
-  | { type: 'castle' }
-  | { type: 'wall' }
+/** What one attacker took: a piece, rocks included, or a castle. */
+export type Casualty = { type: 'piece'; piece: Piece } | { type: 'castle' }
 
 export type Outcome = { type: 'winner'; player: number } | { type: 'draw' }
 
 export interface GameState {
+  /** Every piece on the board, the neutral rocks included. */
   board: (Piece | null)[][]
   castles: boolean[][]
-  /** Indexed by `WALL_SQUARES`: whether that wall still stands. */
-  walls: boolean[]
-  /** Indexed by player, then by `tokenIndex` — 0 is the row token. */
+  /** Indexed by player, then by `tokenIndex` — 0 is the March token. */
   tokens: Token[][]
   currentPlayer: number
   phase: Phase
   pending: TokenKind[]
   pendingLen: number
-  /** How far along its line a volley has got. Only meaningful in `attack`. */
+  /** How far along its line an Attack has got. Only meaningful in `attack`. */
   attackIndex: number
   turn: number
   outcome: Outcome | null
@@ -90,7 +83,7 @@ export type GameEvent =
       to: Square
     }
   | { type: 'passed'; player: number; token: TokenKind }
-  | { type: 'volley'; player: number; token: TokenKind; line: number }
+  | { type: 'attacked'; player: number; token: TokenKind; line: number }
   | {
       type: 'struck'
       player: number
@@ -110,44 +103,43 @@ export type GameEvent =
   | { type: 'turnEnded'; player: number }
   | { type: 'gameOver'; outcome: Outcome }
 
-/** A volley's reach: each attacker takes one of these, not all of them. */
-export interface AttackPreview {
-  attackers: Square[]
-  /** Every square this volley could shoot a piece on, occupied or not. */
-  covered: Square[]
+/** What one Attack bears on, and in what targets. Threatened pieces include
+    rocks: either side may kill one. */
+export interface Threat {
   threatenedPieces: Square[]
   threatenedCastles: Square[]
-  threatenedWalls: Square[]
 }
 
-/** What one move puts within reach of the volley still to come this turn. */
-export interface MoveOutcome {
+/** An Attack's reach: each attacker takes one of these, not all of them. */
+export interface AttackPreview extends Threat {
+  attackers: Square[]
+  /** The Attack Zone of the line's pieces, occupied or not. */
+  zone: Square[]
+}
+
+/** What one move puts within reach of the Attack still to come this turn. */
+export interface MoveOutcome extends Threat {
   from: Square
   to: Square
-  threatenedPieces: Square[]
-  threatenedCastles: Square[]
-  threatenedWalls: Square[]
 }
 
-/** What sliding a token to a line sets up, now and next turn. */
-export interface SlideOutcome {
+/** What sliding the token to a line sets up, now and next turn. */
+export interface SlideOutcome extends Threat {
   token: TokenKind
   line: number
   movers: Square[]
-  covered: Square[]
-  threatenedPieces: Square[]
-  threatenedCastles: Square[]
-  threatenedWalls: Square[]
+  zone: Square[]
 }
 
-export const TOKEN_KINDS: TokenKind[] = ['row', 'column']
+export const TOKEN_KINDS: TokenKind[] = ['march', 'flank']
 
-export function tokenIndex(kind: TokenKind): number {
-  return kind === 'row' ? 0 : 1
+export const TOKEN_NAMES: Record<TokenKind, string> = {
+  march: 'March',
+  flank: 'Flank',
 }
 
-export function otherToken(kind: TokenKind): TokenKind {
-  return kind === 'row' ? 'column' : 'row'
+function tokenIndex(kind: TokenKind): number {
+  return kind === 'march' ? 0 : 1
 }
 
 export function tokenOf(state: GameState, player: number, kind: TokenKind): Token {
@@ -175,35 +167,23 @@ export function pendingTokens(state: GameState): TokenKind[] {
   return state.pending.slice(0, state.pendingLen)
 }
 
-/** Whether a volley is still waiting to fire in this player's turn. */
-export function volleyPending(state: GameState): boolean {
+/** Whether an Attack is still waiting to be made in this player's turn. */
+export function attackPending(state: GameState): boolean {
   return pendingTokens(state).some(
-    (kind) => tokenOf(state, state.currentPlayer, kind).face === 'attack',
+    (kind) => tokenOf(state, state.currentPlayer, kind).side === 'attack',
   )
 }
 
-/** The single token this player will attack with, if one is armed. */
+/** The token this player shows Attack side up, if one is. */
 export function armedToken(state: GameState, player: number): TokenKind | null {
-  return TOKEN_KINDS.find((kind) => tokenOf(state, player, kind).face === 'attack') ?? null
+  return TOKEN_KINDS.find((kind) => tokenOf(state, player, kind).side === 'attack') ?? null
 }
 
-/** One of the printed three, or a razed castle with a hilltop token over it. */
+/** One of the printed three, or a destroyed castle, which becomes one. */
 export function isHilltop(state: GameState, square: Square): boolean {
   if (square.row === HILLTOP_ROW && HILLTOP_COLS.includes(square.col)) return true
   const slot = castleSlotAt(square)
   return slot !== null && !state.castles[slot.owner][slot.index]
-}
-
-/** The wall slot on `square`, whether or not that wall still stands. */
-export function wallSlotAt(square: Square): number | null {
-  const index = WALL_SQUARES.findIndex((wall) => sameSquare(wall, square))
-  return index < 0 ? null : index
-}
-
-/** Whether a wall is still standing on `square`. */
-export function wallStands(state: GameState, square: Square): boolean {
-  const slot = wallSlotAt(square)
-  return slot !== null && state.walls[slot]
 }
 
 /** The castle slot on `square`, whether or not that castle still stands. */
@@ -212,15 +192,6 @@ export function castleSlotAt(square: Square): { owner: number; index: number } |
   const index = CASTLE_COLS.indexOf(square.col)
   if (owner < 0 || index < 0) return null
   return { owner, index }
-}
-
-export function castleStands(state: GameState, square: Square): boolean {
-  const slot = castleSlotAt(square)
-  return slot !== null && state.castles[slot.owner][slot.index]
-}
-
-export function castlesStanding(state: GameState, player: number): number {
-  return state.castles[player].filter(Boolean).length
 }
 
 export function siegeEngines(state: GameState, player: number): PieceKind[] {
@@ -233,11 +204,11 @@ export function siegeEngines(state: GameState, player: number): PieceKind[] {
   return kinds
 }
 
-export function isSiege(kind: PieceKind): boolean {
+function isSiege(kind: PieceKind): boolean {
   return kind === 'trebuchet' || kind === 'batteringRam'
 }
 
-const ATTACK_OFFSETS: Record<PieceKind, [number, number][]> = {
+const ATTACK_ZONES: Record<PieceKind, [number, number][]> = {
   swordsman: [
     [-1, 0],
     [1, 0],
@@ -278,15 +249,17 @@ const ATTACK_OFFSETS: Record<PieceKind, [number, number][]> = {
     [0, -1],
     [0, 1],
   ],
+  rock: [],
 }
 
-export function attackOffsets(kind: PieceKind): [number, number][] {
-  return ATTACK_OFFSETS[kind]
+/** A piece's Attack Zone, relative to where it stands. */
+export function attackZone(kind: PieceKind): [number, number][] {
+  return ATTACK_ZONES[kind]
 }
 
-/** Every on-board square a piece of `kind` on `from` strikes. */
-export function attackTargets(from: Square, kind: PieceKind): Square[] {
-  return attackOffsets(kind)
+/** Every on-board square in the Attack Zone of a piece of `kind` on `from`. */
+export function zoneSquares(from: Square, kind: PieceKind): Square[] {
+  return attackZone(kind)
     .map(([drow, dcol]) => ({ row: from.row + drow, col: from.col + dcol }))
     .filter(
       (square) =>
@@ -301,26 +274,11 @@ export const PIECE_NAMES: Record<PieceKind, string> = {
   archer: 'Archer',
   trebuchet: 'Trebuchet',
   batteringRam: 'Battering Ram',
+  rock: 'Rock',
 }
 
 export const PLAYER_NAMES = ['Ivory', 'Umber']
 
 export function lineOf(kind: TokenKind, square: Square): number {
-  return kind === 'row' ? square.row : square.col
-}
-
-/** How many lines of this kind the board has: 7 ranks, 9 files. */
-export function lineCount(kind: TokenKind): number {
-  return kind === 'row' ? BOARD_ROWS : BOARD_COLS
-}
-
-/** How many squares sit on one such line — the other dimension. */
-export function lineLength(kind: TokenKind): number {
-  return lineCount(otherToken(kind))
-}
-
-export function squaresOnLine(kind: TokenKind, line: number): Square[] {
-  return Array.from({ length: lineLength(kind) }, (_, i) =>
-    kind === 'row' ? { row: line, col: i } : { row: i, col: line },
-  )
+  return kind === 'march' ? square.row : square.col
 }

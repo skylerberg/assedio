@@ -59,6 +59,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "assedio-core"
+version = "0.1.0"
+dependencies = [
+ "mcts",
+ "serde",
+ "serde_json",
+ "wyrand",
+]
+
+[[package]]
+name = "assedio-runner"
+version = "0.1.0"
+dependencies = [
+ "assedio-core",
+ "clap",
+ "mcts",
+ "mcts-tune",
+ "serde",
+ "serde_json",
+ "wyrand",
+]
+
+[[package]]
+name = "assedio-wasm"
+version = "0.1.0"
+dependencies = [
+ "assedio-core",
+ "js-sys",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wyrand",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -115,41 +150,6 @@ name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
-
-[[package]]
-name = "command-slide-core"
-version = "0.1.0"
-dependencies = [
- "mcts",
- "serde",
- "serde_json",
- "wyrand",
-]
-
-[[package]]
-name = "command-slide-runner"
-version = "0.1.0"
-dependencies = [
- "clap",
- "command-slide-core",
- "mcts",
- "mcts-tune",
- "serde",
- "serde_json",
- "wyrand",
-]
-
-[[package]]
-name = "command-slide-wasm"
-version = "0.1.0"
-dependencies = [
- "command-slide-core",
- "js-sys",
- "serde",
- "serde_json",
- "wasm-bindgen",
- "wyrand",
-]
 
 [[package]]
 name = "equivalent"

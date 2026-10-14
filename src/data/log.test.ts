@@ -7,33 +7,50 @@ import {
   lineName,
   squareName,
 } from './log'
-import { BOARD_COLS, BOARD_ROWS } from './types'
+import { BOARD_COLS, BOARD_ROWS, NEUTRAL } from './types'
 import type { GameEvent, GameState, PieceKind, Square } from './types'
 
 describe('board coordinates', () => {
-  it('names squares with files left to right and ranks top to bottom', () => {
-    expect(squareName({ row: 0, col: 0 })).toBe('a7')
-    expect(squareName({ row: 6, col: 8 })).toBe('i1')
+  it('names squares with columns left to right and rows up from Ivory', () => {
+    expect(squareName({ row: 0, col: 0 })).toBe('a1')
+    expect(squareName({ row: 6, col: 8 })).toBe('i7')
     expect(squareName({ row: 3, col: 4 })).toBe('e4')
   })
 
   it('names a token line by the kind of line it rides', () => {
-    expect(lineName('row', 0)).toBe('rank 7')
-    expect(lineName('column', 8)).toBe('file i')
+    expect(lineName('march', 0)).toBe('row 1')
+    expect(lineName('flank', 8)).toBe('column i')
   })
 })
 
 describe('describeEvent', () => {
-  it('announces a volley by the line it comes from', () => {
-    const event: GameEvent = { type: 'volley', player: 1, token: 'column', line: 3 }
-    expect(describeEvent(event)).toEqual({ player: 1, text: 'volleys along file d' })
+  it('announces an Attack by the line it comes from', () => {
+    const event: GameEvent = { type: 'attacked', player: 1, token: 'flank', line: 3 }
+    expect(describeEvent(event)).toEqual({ player: 1, text: 'attacks along column d' })
   })
 
-  it('names the attacker and its one casualty', () => {
+  it('names a slide by the token and the line it lands on', () => {
+    const event: GameEvent = { type: 'slid', player: 0, token: 'march', from: 3, to: 1 }
+    expect(describeEvent(event)?.text).toBe('slides the March token to row 2')
+  })
+
+  it('names a move by the token that made it', () => {
+    const event: GameEvent = {
+      type: 'moved',
+      player: 0,
+      token: 'flank',
+      kind: 'swordsman',
+      from: { row: 1, col: 2 },
+      to: { row: 3, col: 4 },
+    }
+    expect(describeEvent(event)?.text).toBe('flanks Swordsman c2 → e4')
+  })
+
+  it('names the attacker and the piece it kills', () => {
     const event: GameEvent = {
       type: 'struck',
       player: 1,
-      token: 'column',
+      token: 'flank',
       kind: 'archer',
       from: { row: 3, col: 3 },
       target: { row: 1, col: 1 },
@@ -41,46 +58,46 @@ describe('describeEvent', () => {
     }
     expect(describeEvent(event)).toEqual({
       player: 1,
-      text: 'Archer d4 destroys Flail on b6',
+      text: 'Archer d4 kills Flail b2',
       grave: true,
     })
   })
 
-  it('names a razed castle by its square', () => {
+  it('names a destroyed castle by its square', () => {
     const event: GameEvent = {
       type: 'struck',
       player: 0,
-      token: 'row',
+      token: 'march',
       kind: 'trebuchet',
       from: { row: 3, col: 4 },
       target: { row: 6, col: 1 },
       casualty: { type: 'castle' },
     }
-    expect(describeEvent(event)?.text).toBe('Trebuchet e4 destroys the castle on b1')
+    expect(describeEvent(event)?.text).toBe('Trebuchet e4 destroys the castle on b7')
   })
 
-  it('names a broken wall by its square', () => {
+  it('names a killed rock by its square', () => {
     const event: GameEvent = {
       type: 'struck',
       player: 1,
-      token: 'column',
+      token: 'flank',
       kind: 'swordsman',
-      from: { row: 2, col: 3 },
+      from: { row: 4, col: 3 },
       target: { row: 3, col: 3 },
-      casualty: { type: 'wall' },
+      casualty: { type: 'piece', piece: { kind: 'rock', owner: NEUTRAL } },
     }
     expect(describeEvent(event)).toEqual({
       player: 1,
-      text: 'Swordsman d5 destroys the wall on d4',
+      text: 'Swordsman d5 kills the rock on d4',
       grave: true,
     })
   })
 
-  it('records an attacker that declined its shot', () => {
+  it('records an attacker that held its fire', () => {
     const event: GameEvent = {
       type: 'heldFire',
       player: 0,
-      token: 'row',
+      token: 'march',
       kind: 'swordsman',
       from: { row: 3, col: 3 },
     }
@@ -101,14 +118,14 @@ describe('describeEvent', () => {
 })
 
 describe('destroyedSquares', () => {
-  it('collects the target of every shot in a batch', () => {
+  it('collects the target of every attacker in a batch', () => {
     const events: GameEvent[] = [
-      { type: 'slid', player: 0, token: 'row', from: 0, to: 2 },
-      { type: 'volley', player: 0, token: 'row', line: 2 },
+      { type: 'slid', player: 0, token: 'march', from: 0, to: 2 },
+      { type: 'attacked', player: 0, token: 'march', line: 2 },
       {
         type: 'struck',
         player: 0,
-        token: 'row',
+        token: 'march',
         kind: 'swordsman',
         from: { row: 2, col: 1 },
         target: { row: 1, col: 1 },
@@ -117,7 +134,7 @@ describe('destroyedSquares', () => {
       {
         type: 'struck',
         player: 0,
-        token: 'row',
+        token: 'march',
         kind: 'batteringRam',
         from: { row: 5, col: 6 },
         target: { row: 6, col: 6 },
@@ -143,20 +160,19 @@ function position(pieces: [Square, PieceKind, number][]): GameState {
       [true, true, true],
       [true, true, true],
     ],
-    walls: [true, true, true, true],
     tokens: [
       [
-        { line: 0, face: 'movement' },
-        { line: 0, face: 'attack' },
+        { line: 0, side: 'move' },
+        { line: 0, side: 'attack' },
       ],
       [
-        { line: 6, face: 'movement' },
-        { line: 6, face: 'attack' },
+        { line: 6, side: 'move' },
+        { line: 6, side: 'attack' },
       ],
     ],
     currentPlayer: 0,
     phase: 'activate',
-    pending: ['row', 'column'],
+    pending: ['march', 'flank'],
     pendingLen: 2,
     attackIndex: 0,
     turn: 3,
@@ -165,19 +181,24 @@ function position(pieces: [Square, PieceKind, number][]): GameState {
 }
 
 describe('describeMoveOutcome', () => {
-  const state = position([[{ row: 1, col: 3 }, 'swordsman', 1]])
+  const state = position([
+    [{ row: 1, col: 3 }, 'swordsman', 1],
+    [{ row: 3, col: 2 }, 'rock', NEUTRAL],
+  ])
 
-  it('names what the volley after the move would take', () => {
+  it('names what the Attack after the move would take', () => {
     expect(
       describeMoveOutcome(state, {
         from: { row: 0, col: 1 },
         to: { row: 1, col: 2 },
-        threatenedPieces: [{ row: 1, col: 3 }],
+        threatenedPieces: [
+          { row: 1, col: 3 },
+          { row: 3, col: 2 },
+        ],
         threatenedCastles: [{ row: 6, col: 1 }],
-        threatenedWalls: [{ row: 3, col: 2 }],
       }),
     ).toBe(
-      'b7 → c6, and your volley then bears on Swordsman d6, the castle on b1 and the wall on c4.',
+      'b1 → c2, and your Attack then bears on Swordsman d2, the rock on c4 and the castle on b7.',
     )
   })
 
@@ -188,44 +209,41 @@ describe('describeMoveOutcome', () => {
         to: { row: 1, col: 0 },
         threatenedPieces: [],
         threatenedCastles: [],
-        threatenedWalls: [],
       }),
-    ).toBe('b7 → a6.')
+    ).toBe('b1 → a2.')
   })
 })
 
 describe('describeSlideOutcome', () => {
   const state = position([[{ row: 2, col: 3 }, 'archer', 1]])
 
-  it('reports both halves of a slide: the move now and the volley next turn', () => {
+  it('reports both halves of a slide: the move now and the Attack next turn', () => {
     expect(
       describeSlideOutcome(state, {
-        token: 'row',
+        token: 'march',
         line: 2,
         movers: [{ row: 2, col: 1 }],
-        covered: [{ row: 2, col: 3 }],
+        zone: [{ row: 2, col: 3 }],
         threatenedPieces: [{ row: 2, col: 3 }],
         threatenedCastles: [],
-        threatenedWalls: [],
       }),
     ).toBe(
-      '1 piece on rank 5 could move; next turn the volley there bears on Archer d5, as the board stands.',
+      '1 piece on row 3 could move; next turn the Attack there bears on Archer d3, as the board stands.',
     )
   })
 
   it('says plainly when a line offers neither', () => {
     expect(
       describeSlideOutcome(state, {
-        token: 'column',
+        token: 'flank',
         line: 5,
         movers: [],
-        covered: [],
+        zone: [],
         threatenedPieces: [],
         threatenedCastles: [],
-        threatenedWalls: [],
       }),
     ).toBe(
-      'Nothing on file f could move; next turn the volley there bears on nothing, as the board stands.',
+      'Nothing on column f could move; next turn the Attack there bears on nothing, as the board stands.',
     )
   })
 })

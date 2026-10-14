@@ -1,7 +1,7 @@
 //! The game's side of the `mcts` contract, plus the evaluation the search
 //! leans on.
 //!
-//! Command Slide is deterministic and perfect information, so most of the
+//! Assedio is deterministic and perfect information, so most of the
 //! trait falls away: `determinize_into` is a copy, `Side` is `()`, and the root
 //! choices provably cannot vary between iterations. What does need care is the
 //! leaf evaluation. Both win conditions sit far outside a random rollout's
@@ -35,9 +35,9 @@ pub struct EvalParams {
     pub hilltop: f64,
     /// The first enemy castle a hilltop trebuchet bears on.
     pub castle_threat: f64,
-    /// Per enemy castle in range beyond the first. A volley fires one shot per
-    /// piece, so the second and third castle a trebuchet covers are options,
-    /// not extra damage — they are worth far less than the first.
+    /// Per enemy castle in range beyond the first. An Attack takes one target
+    /// per piece, so the second and third castle a trebuchet covers are
+    /// options, not extra damage — they are worth far less than the first.
     pub castle_threat_extra: f64,
     /// Per enemy castle a battering ram currently bears on.
     pub ram_threat: f64,
@@ -83,16 +83,15 @@ impl EvalParams {
             PieceKind::Archer => self.archer,
             PieceKind::Trebuchet => self.trebuchet,
             PieceKind::BatteringRam => self.battering_ram,
+            // A rock belongs to neither side, so no side's score ever holds one.
+            PieceKind::Rock => 0.0,
         }
     }
 }
 
 /// Standing enemy castles a piece of `kind` on `from` would hit right now.
 pub fn castles_in_range(state: &GameState, from: Square, enemy: u8, kind: PieceKind) -> usize {
-    if kind == PieceKind::Trebuchet && !state.is_hilltop(from) {
-        return 0;
-    }
-    kind.attack_offsets()
+    kind.attack_zone()
         .iter()
         .filter_map(|&(drow, dcol)| from.offset(drow, dcol))
         .filter_map(GameState::castle_slot_at)
@@ -100,21 +99,18 @@ pub fn castles_in_range(state: &GameState, from: Square, enemy: u8, kind: PieceK
         .count()
 }
 
-/// A razed castle takes a hilltop token, so the set a trebuchet is walking
+/// A destroyed castle becomes a hilltop, so the set a trebuchet is walking
 /// towards grows as castles fall.
 fn distance_to_hilltop(state: &GameState, from: Square) -> u8 {
     let printed = HILLTOP_COLS
         .iter()
         .map(|&col| from.chebyshev(Square::new(HILLTOP_ROW, col)));
-    let razed = (0..NUM_PLAYERS as u8).flat_map(move |owner| {
+    let fallen = (0..NUM_PLAYERS as u8).flat_map(move |owner| {
         (0..CASTLES_PER_PLAYER)
             .filter(move |&index| !state.castles[owner as usize][index])
             .map(move |index| from.chebyshev(GameState::castle_square(owner, index)))
     });
-    printed
-        .chain(razed)
-        .min()
-        .expect("the board has hilltops")
+    printed.chain(fallen).min().expect("the board has hilltops")
 }
 
 fn distance_to_enemy_castle(state: &GameState, from: Square, enemy: u8) -> u8 {
@@ -290,7 +286,7 @@ impl Game for GameState {
 #[serde(rename_all = "camelCase")]
 pub struct AiConfig {
     pub iterations: u32,
-    /// Only honoured when `command-slide-core` is built with the `time`
+    /// Only honoured when `assedio-core` is built with the `time`
     /// feature; `wasm32` builds are not, because `Instant` panics there.
     pub time_limit_ms: Option<u64>,
     pub exploration_constant: f64,
@@ -359,14 +355,8 @@ impl Ai {
         cancel: Option<&AtomicBool>,
         rng: &mut R,
     ) -> SearchResult<Choice> {
-        self.searcher.search(
-            state,
-            &cfg.context,
-            player,
-            &cfg.mcts_config(),
-            cancel,
-            rng,
-        )
+        self.searcher
+            .search(state, &cfg.context, player, &cfg.mcts_config(), cancel, rng)
     }
 
     /// Keep the subtree under `choice` for the next search.

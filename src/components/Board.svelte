@@ -2,14 +2,15 @@
   import PieceIcon from './PieceIcon.svelte'
   import TerrainIcon from './TerrainIcon.svelte'
   import TokenIcon from './TokenIcon.svelte'
-  import { describeMoveOutcome, describeSlideOutcome } from '../data/log'
+  import { describeMoveOutcome, describeSlideOutcome, lineName, squareName } from '../data/log'
   import {
     BOARD_COLS,
     BOARD_ROWS,
-    FILE_LETTERS,
+    NEUTRAL,
+    PIECE_NAMES,
     PLAYER_NAMES,
     TOKEN_KINDS,
-    attackTargets,
+    TOKEN_NAMES,
     castleSlotAt,
     isHilltop,
     lineOf,
@@ -17,15 +18,17 @@
     sameSquare,
     squareKey,
     tokenOf,
-    wallStands,
+    zoneSquares,
   } from '../data/types'
   import type {
     AttackPreview,
     Choice,
     GameState,
     MoveOutcome,
+    Piece,
     SlideOutcome,
     Square,
+    Threat,
     TokenKind,
   } from '../data/types'
 
@@ -33,13 +36,13 @@
     game: GameState
     /** Empty whenever it is not the local player's move. */
     legalChoices: Choice[]
-    /** Squares each side's armed token currently bears on. */
-    volley: Record<number, AttackPreview | null>
+    /** What each side's Attack-side token currently bears on. */
+    attacks: Record<number, AttackPreview | null>
     /** What each move available now puts in reach; empty off the move phase. */
     moveOutcomes: MoveOutcome[]
     /** What each slide available now sets up; empty off the slide phase. */
     slideOutcomes: SlideOutcome[]
-    /** Attackers of the volley in progress still to fire, the current one first. */
+    /** Attackers of the Attack in progress still to choose, the current one first. */
     pendingAttackers: Square[]
     /** The side the controls answer to: your seat in a solo game, and whoever
         is to move when two players share the screen or neither of them is
@@ -50,7 +53,7 @@
     showThreats: boolean
     /** Whether to look a step ahead: what a move or a slide would lead to. */
     showOutcomes: boolean
-    /** Squares emptied by the volley just resolved, flashed and then dropped. */
+    /** Squares emptied by the Attack just resolved, flashed and then dropped. */
     destroyed: Square[]
     onChoice: (choice: Choice) => void
     /** A sentence about whatever is under the cursor, for the prompt panel. */
@@ -60,7 +63,7 @@
   let {
     game,
     legalChoices,
-    volley,
+    attacks,
     moveOutcomes,
     slideOutcomes,
     pendingAttackers,
@@ -82,14 +85,16 @@
   let near = $derived(orientation)
   let far = $derived(1 - orientation)
 
-  /** A half turn, so ranks and files both run backwards. Reordering the indices
-      rather than rotating the grid keeps coordinates and piece art upright. */
-  let rows = $derived(drawOrder(BOARD_ROWS))
-  let cols = $derived(drawOrder(BOARD_COLS))
+  /** Ivory's view is the rules sheet's: its back row along the bottom and
+      column a on the left. Umber's is a half turn from it, so rows and columns
+      both run backwards. Reordering the indices rather than rotating the grid
+      keeps coordinates and piece art upright. */
+  let rows = $derived(drawOrder(BOARD_ROWS, orientation === 0))
+  let cols = $derived(drawOrder(BOARD_COLS, orientation === 1))
 
-  function drawOrder(length: number): number[] {
+  function drawOrder(length: number, reversed: boolean): number[] {
     const line = Array.from({ length }, (_, i) => i)
-    return orientation === 0 ? line.reverse() : line
+    return reversed ? line.reverse() : line
   }
 
   let moves = $derived(legalChoices.filter((choice) => choice.type === 'move'))
@@ -110,7 +115,7 @@
     new Map(slideOutcomes.map((outcome) => [`${outcome.token}:${outcome.line}`, outcome])),
   )
 
-  /** The one piece now choosing a target, while a volley walks its line. */
+  /** The one piece now choosing a target, while an Attack walks its line. */
   let attacker = $derived.by(() => {
     for (const choice of legalChoices) {
       if (choice.type === 'attack' || choice.type === 'holdFire') return choice.from
@@ -136,13 +141,9 @@
         ),
   )
 
-  /** Everything one volley could shoot: pieces, castles and now walls too. */
-  function threatened(reach: {
-    threatenedPieces: Square[]
-    threatenedCastles: Square[]
-    threatenedWalls: Square[]
-  }): Square[] {
-    return [...reach.threatenedPieces, ...reach.threatenedCastles, ...reach.threatenedWalls]
+  /** Everything one Attack could take: pieces, rocks among them, and castles. */
+  function threatened(threat: Threat): Square[] {
+    return [...threat.threatenedPieces, ...threat.threatenedCastles]
   }
 
   function targeting(outcome: MoveOutcome): boolean {
@@ -159,7 +160,7 @@
     return map
   })
 
-  /** Pieces holding a move that would put something under the volley. */
+  /** Pieces holding a move that would put something under the Attack. */
   let armingMovers = $derived(
     new Set(
       showOutcomes ? moveOutcomes.filter(targeting).map((o) => squareKey(o.from)) : [],
@@ -174,48 +175,47 @@
     return keys(threatened(outcome))
   })
 
-  /** Where the highlighted piece strikes — from where it would land, if the
+  /** The highlighted piece's Attack Zone — from where it would land, if the
       cursor is on one of its destinations. */
-  let patternSquares = $derived.by(() => {
+  let zoneUnderCursor = $derived.by(() => {
     const landing = hovered && destinations.has(squareKey(hovered)) ? hovered : null
     const origin = landing ?? selected ?? hovered
     if (!origin) return new Set<string>()
     const piece = pieceAt(game, landing ? selected! : origin)
     if (!piece) return new Set<string>()
-    if (piece.kind === 'trebuchet' && !isHilltop(game, origin)) return new Set<string>()
-    return new Set(attackTargets(origin, piece.kind).map(squareKey))
+    return keys(zoneSquares(origin, piece.kind))
   })
 
   function keys(squares: Square[]): Set<string> {
     return new Set(squares.map(squareKey))
   }
 
-  /** The volley the board is explaining: the armed token's, or the one a
+  /** The Attack the board is explaining: the armed token's, or the one a
       hovered slide would arm a turn from now. Suppressed while an attacker is
-      choosing its target, where the legal shots say it better. */
-  let ownVolley = $derived.by(() => {
+      choosing its target, where the legal targets say it better. */
+  let ownAttack = $derived.by(() => {
     if (hoveredSlide && showOutcomes) {
       return {
-        covered: keys(hoveredSlide.covered),
+        zone: keys(hoveredSlide.zone),
         marks: keys(threatened(hoveredSlide)),
       }
     }
-    const preview = attacker !== null ? null : volley[viewer]
+    const preview = attacker !== null ? null : attacks[viewer]
     return {
-      covered: keys(preview?.covered ?? []),
+      zone: keys(preview?.zone ?? []),
       marks: preview ? keys(threatened(preview)) : new Set<string>(),
     }
   })
 
-  let enemyVolley = $derived.by(() => {
-    const preview = showThreats ? volley[1 - viewer] : null
+  let enemyAttack = $derived.by(() => {
+    const preview = showThreats ? attacks[1 - viewer] : null
     return {
-      covered: keys(preview?.covered ?? []),
+      zone: keys(preview?.zone ?? []),
       marks: preview ? keys(threatened(preview)) : new Set<string>(),
     }
   })
 
-  /** Attackers behind the one now firing: the shots still to come. */
+  /** Attackers behind the one now choosing: the targets still to come. */
   let queuedAttackers = $derived(keys(pendingAttackers.slice(1)))
   let previewMovers = $derived.by(() => keys(hoveredSlide?.movers ?? []))
   let destroyedKeys = $derived(keys(destroyed))
@@ -227,16 +227,16 @@
     for (let player = 0; player < 2; player++) {
       for (const kind of TOKEN_KINDS) {
         const token = tokenOf(game, player, kind)
-        const target = kind === 'row' ? rows : cols
-        const label = `${player}-${token.face}`
+        const target = kind === 'march' ? rows : cols
+        const label = `${player}-${token.side}`
         target.set(token.line, [...(target.get(token.line) ?? []), label])
       }
     }
     return { rows, cols }
   })
 
-  /** An armed line reads by whose it is: the one you are about to be shot
-      along is not the one you are about to shoot along. */
+  /** An armed line reads by whose it is: the line you are about to be
+      attacked along is not the one you are about to attack along. */
   function bandClass(square: Square): string {
     const labels = [
       ...(bands.rows.get(square.row) ?? []),
@@ -254,7 +254,7 @@
 
   function clickTrack(kind: TokenKind, line: number) {
     if (!slideTargets.has(`${kind}:${line}`)) return
-    onChoice({ type: 'slide', token: kind, line })
+    onChoice({ type: 'slide', line })
   }
 
   function enterTrack(kind: TokenKind, line: number) {
@@ -306,13 +306,18 @@
 
   function squareTitle(square: Square): string {
     const piece = pieceAt(game, square)
-    const parts: string[] = [`${FILE_LETTERS[square.col]}${BOARD_ROWS - square.row}`]
-    if (piece) parts.push(piece.kind)
+    const parts: string[] = [squareName(square)]
+    if (piece) parts.push(PIECE_NAMES[piece.kind])
     const slot = castleSlotAt(square)
-    if (slot) parts.push(game.castles[slot.owner][slot.index] ? 'castle' : 'razed castle')
-    if (wallStands(game, square)) parts.push('wall')
+    if (slot) parts.push(game.castles[slot.owner][slot.index] ? 'castle' : 'destroyed castle')
     if (isHilltop(game, square)) parts.push('hilltop')
     return parts.join(' · ')
+  }
+
+  /** Each side's pieces sit on a disc of its colour; a rock sits on nothing. */
+  function pieceClass(piece: Piece): string {
+    if (piece.owner === NEUTRAL) return 'rock'
+    return piece.owner === 0 ? 'ivory' : 'umber'
   }
 </script>
 
@@ -327,20 +332,20 @@
     <div class="corner"></div>
     {#each cols as col (col)}
       <button
-        class="track column"
-        class:live={trackActive(far, 'column', col)}
-        class:occupied={trackHasToken(far, 'column', col)}
-        disabled={!trackActive(far, 'column', col)}
-        onclick={() => clickTrack('column', col)}
-        onmouseenter={() => enterTrack('column', col)}
+        class="track flank"
+        class:live={trackActive(far, 'flank', col)}
+        class:occupied={trackHasToken(far, 'flank', col)}
+        disabled={!trackActive(far, 'flank', col)}
+        onclick={() => clickTrack('flank', col)}
+        onmouseenter={() => enterTrack('flank', col)}
         onmouseleave={leaveTrack}
-        onfocus={() => enterTrack('column', col)}
+        onfocus={() => enterTrack('flank', col)}
         onblur={leaveTrack}
-        aria-label={`${PLAYER_NAMES[far]} column token to column ${col + 1}`}
+        aria-label={`${PLAYER_NAMES[far]} ${TOKEN_NAMES.flank} token to ${lineName('flank', col)}`}
       >
-        {#if trackHasToken(far, 'column', col)}
+        {#if trackHasToken(far, 'flank', col)}
           <span class={`token ${far === 0 ? 'ivory' : 'umber'}`}>
-            <TokenIcon kind="column" face={tokenOf(game, far, 'column').face} owner={far} />
+            <TokenIcon kind="flank" side={tokenOf(game, far, 'flank').side} owner={far} />
           </span>
         {:else}
           <span class="slot"></span>
@@ -351,20 +356,20 @@
 
     {#each rows as row (row)}
       <button
-        class="track row"
-        class:live={trackActive(far, 'row', row)}
-        class:occupied={trackHasToken(far, 'row', row)}
-        disabled={!trackActive(far, 'row', row)}
-        onclick={() => clickTrack('row', row)}
-        onmouseenter={() => enterTrack('row', row)}
+        class="track march"
+        class:live={trackActive(far, 'march', row)}
+        class:occupied={trackHasToken(far, 'march', row)}
+        disabled={!trackActive(far, 'march', row)}
+        onclick={() => clickTrack('march', row)}
+        onmouseenter={() => enterTrack('march', row)}
         onmouseleave={leaveTrack}
-        onfocus={() => enterTrack('row', row)}
+        onfocus={() => enterTrack('march', row)}
         onblur={leaveTrack}
-        aria-label={`${PLAYER_NAMES[far]} row token to row ${row + 1}`}
+        aria-label={`${PLAYER_NAMES[far]} ${TOKEN_NAMES.march} token to ${lineName('march', row)}`}
       >
-        {#if trackHasToken(far, 'row', row)}
+        {#if trackHasToken(far, 'march', row)}
           <span class={`token ${far === 0 ? 'ivory' : 'umber'}`}>
-            <TokenIcon kind="row" face={tokenOf(game, far, 'row').face} owner={far} />
+            <TokenIcon kind="march" side={tokenOf(game, far, 'march').side} owner={far} />
           </span>
         {:else}
           <span class="slot"></span>
@@ -380,9 +385,8 @@
         <button
           class={`square ${bandClass(square)}`}
           class:castle-square={slot !== null && game.castles[slot.owner][slot.index]}
-          class:castle-razed={slot !== null && !game.castles[slot.owner][slot.index]}
+          class:castle-destroyed={slot !== null && !game.castles[slot.owner][slot.index]}
           class:hilltop={isHilltop(game, square)}
-          class:wall={wallStands(game, square)}
           class:armed-siege={piece !== null &&
             piece.kind === 'trebuchet' &&
             isHilltop(game, square)}
@@ -396,11 +400,11 @@
           class:arming={armingMovers.has(key)}
           class:destination={destinations.has(key)}
           class:aims={showOutcomes && outcome !== undefined && targeting(outcome)}
-          class:pattern={patternSquares.has(key)}
-          class:covered-own={ownVolley.covered.has(key)}
-          class:covered-threat={enemyVolley.covered.has(key)}
-          class:own-mark={ownVolley.marks.has(key)}
-          class:threat={enemyVolley.marks.has(key)}
+          class:pattern={zoneUnderCursor.has(key)}
+          class:zone-own={ownAttack.zone.has(key)}
+          class:zone-threat={enemyAttack.zone.has(key)}
+          class:own-mark={ownAttack.marks.has(key)}
+          class:threat={enemyAttack.marks.has(key)}
           class:in-reach={inReach.has(key)}
           class:flash={destroyedKeys.has(key)}
           onclick={() => clickSquare(square)}
@@ -413,15 +417,13 @@
           <span class="terrain">
             {#if slot && game.castles[slot.owner][slot.index]}
               <span class="castle"><TerrainIcon kind="castle" /></span>
-            {:else if wallStands(game, square)}
-              <span class="rampart"><TerrainIcon kind="wall" /></span>
             {:else if isHilltop(game, square)}
               <span class="hill"><TerrainIcon kind="hilltop" /></span>
             {/if}
           </span>
 
           {#if piece}
-            <span class={`token piece ${piece.owner === 0 ? 'ivory' : 'umber'}`}>
+            <span class={`token piece ${pieceClass(piece)}`}>
               <PieceIcon kind={piece.kind} owner={piece.owner} />
             </span>
           {/if}
@@ -431,20 +433,20 @@
       {/each}
 
       <button
-        class="track row"
-        class:live={trackActive(near, 'row', row)}
-        class:occupied={trackHasToken(near, 'row', row)}
-        disabled={!trackActive(near, 'row', row)}
-        onclick={() => clickTrack('row', row)}
-        onmouseenter={() => enterTrack('row', row)}
+        class="track march"
+        class:live={trackActive(near, 'march', row)}
+        class:occupied={trackHasToken(near, 'march', row)}
+        disabled={!trackActive(near, 'march', row)}
+        onclick={() => clickTrack('march', row)}
+        onmouseenter={() => enterTrack('march', row)}
         onmouseleave={leaveTrack}
-        onfocus={() => enterTrack('row', row)}
+        onfocus={() => enterTrack('march', row)}
         onblur={leaveTrack}
-        aria-label={`${PLAYER_NAMES[near]} row token to row ${row + 1}`}
+        aria-label={`${PLAYER_NAMES[near]} ${TOKEN_NAMES.march} token to ${lineName('march', row)}`}
       >
-        {#if trackHasToken(near, 'row', row)}
+        {#if trackHasToken(near, 'march', row)}
           <span class={`token ${near === 0 ? 'ivory' : 'umber'}`}>
-            <TokenIcon kind="row" face={tokenOf(game, near, 'row').face} owner={near} />
+            <TokenIcon kind="march" side={tokenOf(game, near, 'march').side} owner={near} />
           </span>
         {:else}
           <span class="slot"></span>
@@ -455,20 +457,20 @@
     <div class="corner"></div>
     {#each cols as col (col)}
       <button
-        class="track column"
-        class:live={trackActive(near, 'column', col)}
-        class:occupied={trackHasToken(near, 'column', col)}
-        disabled={!trackActive(near, 'column', col)}
-        onclick={() => clickTrack('column', col)}
-        onmouseenter={() => enterTrack('column', col)}
+        class="track flank"
+        class:live={trackActive(near, 'flank', col)}
+        class:occupied={trackHasToken(near, 'flank', col)}
+        disabled={!trackActive(near, 'flank', col)}
+        onclick={() => clickTrack('flank', col)}
+        onmouseenter={() => enterTrack('flank', col)}
         onmouseleave={leaveTrack}
-        onfocus={() => enterTrack('column', col)}
+        onfocus={() => enterTrack('flank', col)}
         onblur={leaveTrack}
-        aria-label={`${PLAYER_NAMES[near]} column token to column ${col + 1}`}
+        aria-label={`${PLAYER_NAMES[near]} ${TOKEN_NAMES.flank} token to ${lineName('flank', col)}`}
       >
-        {#if trackHasToken(near, 'column', col)}
+        {#if trackHasToken(near, 'flank', col)}
           <span class={`token ${near === 0 ? 'ivory' : 'umber'}`}>
-            <TokenIcon kind="column" face={tokenOf(game, near, 'column').face} owner={near} />
+            <TokenIcon kind="flank" side={tokenOf(game, near, 'flank').side} owner={near} />
           </span>
         {:else}
           <span class="slot"></span>
@@ -482,7 +484,7 @@
 <style>
   .board-frame {
     --pad: 0.4rem;
-    /* Nine files plus a token track each side, at 0.72 of a cell: the grid is
+    /* Nine columns plus a token track each side, at 0.72 of a cell: the grid is
        this many cells wide, and the cell is the width divided by it. */
     --spans: 10.44;
     /* The board answers to the space it is actually in, not to the window:
@@ -575,6 +577,11 @@
     background: var(--umber);
   }
 
+  /* The rules sheet draws a rock straight onto its square, with no disc. */
+  .token.rock {
+    box-shadow: none;
+  }
+
   /* The track cells are oblong, so a percentage would size the token off the
      long side and spill it onto the board. */
   .track .token {
@@ -627,20 +634,8 @@
     background: rgba(208, 115, 26, 0.2);
   }
 
-  /* Neutral ground nobody owns: no piece may enter it while it stands, and any
-     ordinary piece breaks it in one shot. */
-  .square.wall {
-    background: var(--parchment-deep);
-  }
-
-  .rampart {
-    width: 59%;
-    color: var(--umber-edge);
-    opacity: 0.9;
-  }
-
-  /* A razed castle takes a hilltop token; the hatch keeps what it was legible. */
-  .square.castle-razed {
+  /* A destroyed castle becomes a hilltop; the hatch keeps what it was legible. */
+  .square.castle-destroyed {
     background:
       repeating-linear-gradient(45deg, rgba(122, 90, 51, 0.16) 0 4px, transparent 4px 8px),
       var(--hilltop);
@@ -657,7 +652,6 @@
   /* Terrain is drawn as a share of the cell: a fixed size spills off the
      square once the board shrinks to a phone. */
   .castle,
-  .rampart,
   .hill {
     display: block;
     aspect-ratio: 1;
@@ -694,9 +688,9 @@
     pointer-events: none;
   }
 
-  /* Where a volley lands, whether or not anything is standing there. Gold is
-     yours, crimson theirs; a square in both hatches is a trade. */
-  .square.covered-own .overlay {
+  /* An Attack Zone, whether or not anything is standing in it. Gold is yours,
+     crimson theirs; a square in both hatches is a trade. */
+  .square.zone-own .overlay {
     background-image: repeating-linear-gradient(
       -45deg,
       rgba(185, 143, 46, 0.28) 0 2px,
@@ -704,7 +698,7 @@
     );
   }
 
-  .square.covered-threat .overlay {
+  .square.zone-threat .overlay {
     background-image: repeating-linear-gradient(
       45deg,
       rgba(163, 34, 34, 0.26) 0 2px,
@@ -712,7 +706,7 @@
     );
   }
 
-  .square.covered-own.covered-threat .overlay {
+  .square.zone-own.zone-threat .overlay {
     background-image:
       repeating-linear-gradient(-45deg, rgba(185, 143, 46, 0.28) 0 2px, transparent 2px 7px),
       repeating-linear-gradient(45deg, rgba(163, 34, 34, 0.26) 0 2px, transparent 2px 7px);
@@ -737,7 +731,7 @@
     background-color: rgba(208, 115, 26, 0.12);
   }
 
-  /* A piece holding a move that would put something under the volley. */
+  /* A piece holding a move that would put something under the Attack. */
   .square.arming .overlay::after {
     content: '';
     position: absolute;
@@ -756,7 +750,7 @@
     background-color: rgba(208, 115, 26, 0.12);
   }
 
-  /* Attackers behind it: this volley still has their shots to take. */
+  /* Attackers behind it: this Attack still has their targets to choose. */
   .square.queued .overlay {
     box-shadow: inset 0 0 0 2px rgba(208, 115, 26, 0.45);
   }
@@ -790,7 +784,7 @@
     opacity: 0.55;
   }
 
-  /* A destination that would bring something under the volley. */
+  /* A destination that would bring something under the Attack. */
   .square.destination.aims .overlay::after {
     width: 38%;
     height: 38%;
@@ -799,7 +793,7 @@
     box-shadow: 0 0 0 3px rgba(163, 34, 34, 0.25);
   }
 
-  /* Where the piece under the cursor would strike. */
+  /* The Attack Zone of the piece under the cursor. */
   .square.pattern .overlay {
     box-shadow: inset 0 0 0 2px rgba(163, 34, 34, 0.45);
   }

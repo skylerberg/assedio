@@ -1,4 +1,4 @@
-//! Command Slide: the complete game engine.
+//! Assedio: the complete game engine.
 //!
 //! Every rule lives here. The wasm bindings, the runner, and the browser all
 //! consume this crate rather than reimplementing any part of it.

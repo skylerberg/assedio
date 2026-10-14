@@ -15,10 +15,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use command_slide_core::rand_core::Rng;
-use command_slide_core::search::{AiConfig, SearchContext};
-use command_slide_core::types::GameState;
-use command_slide_core::{initial_state, EvalParams};
+use assedio_core::rand_core::Rng;
+use assedio_core::search::{AiConfig, SearchContext};
+use assedio_core::types::GameState;
+use assedio_core::{initial_state, EvalParams};
 use mcts::Config;
 use mcts_tune::{
     Checkpoint, CmaEs, CmaParams, Evaluation, Ga, GaParams, Match, Opponents, Optimizer, Tunable,
@@ -61,7 +61,7 @@ const MAX_WEIGHT: f64 = 100.0;
 /// The evaluation weights, as something this crate is allowed to implement a
 /// foreign trait for.
 ///
-/// [`EvalParams`] belongs to `command-slide-core` and [`Tunable`] to
+/// [`EvalParams`] belongs to `assedio-core` and [`Tunable`] to
 /// `mcts-tune`, so the impl has to hang off a local type. A newtype here rather
 /// than the trait in the core crate: `mcts-tune` pulls in threads and whole-game
 /// play, and the core crate compiles to wasm.
@@ -128,7 +128,7 @@ impl Tunable for Weights {
 /// Self-play from the standard opening.
 ///
 /// The opening is the same every game, which is not the limitation it looks
-/// like: Command Slide has one starting position, so that *is* the distribution
+/// like: Assedio has one starting position, so that *is* the distribution
 /// these weights have to be good on. Games still differ, because the search's
 /// own randomness differs with the seed.
 pub struct EvalMatch {

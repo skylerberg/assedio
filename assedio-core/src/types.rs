@@ -2,20 +2,21 @@
 //!
 //! `GameState` is `Copy` on purpose: the search clones one per determinization
 //! and per rollout step, and a memcpy of ~150 bytes is cheaper than anything
-//! that chases a pointer. That is why the board is a fixed array, the walls are
-//! four bools against fixed squares rather than a second grid, and the
+//! that chases a pointer. That is why the board is a fixed array and the
 //! activation queue is an array plus a length rather than a `Vec`.
 
 use serde::{Deserialize, Serialize};
 
-/// The board is wider than it is deep: nine files across, seven ranks up. The
-/// outermost files carry no terrain and start empty, which is what gives the
-/// middle row room for the walls.
+/// The board is wider than it is deep: nine columns across, seven rows up. The
+/// outermost columns carry no terrain and start empty, which is what gives the
+/// middle row room for the rocks.
 pub const BOARD_ROWS: usize = 7;
 pub const BOARD_COLS: usize = 9;
 pub const NUM_PLAYERS: usize = 2;
 pub const CASTLES_PER_PLAYER: usize = 3;
-pub const NUM_WALLS: usize = 4;
+
+/// The owner of a rock, which belongs to neither side.
+pub const NEUTRAL: u8 = 2;
 
 /// Back row for each player: where their castles stand.
 pub const BACK_ROW: [u8; NUM_PLAYERS] = [0, 6];
@@ -29,15 +30,8 @@ pub const CASTLE_COLS: [u8; CASTLES_PER_PLAYER] = [1, 4, 7];
 pub const HILLTOP_ROW: u8 = 3;
 pub const HILLTOP_COLS: [u8; 3] = CASTLE_COLS;
 
-/// The walls, which fill the middle row between the hilltops. They are neutral
-/// terrain: they belong to nobody, they block every slide, and any ordinary
-/// piece breaks one with a single shot.
-pub const WALL_SQUARES: [Square; NUM_WALLS] = [
-    Square::new(HILLTOP_ROW, 2),
-    Square::new(HILLTOP_ROW, 3),
-    Square::new(HILLTOP_ROW, 5),
-    Square::new(HILLTOP_ROW, 6),
-];
+/// The rocks fill the middle row between the hilltops.
+pub const ROCK_COLS: [u8; 4] = [2, 3, 5, 6];
 
 /// Turns each side may take before the game is called a draw. Nothing in the
 /// rules forces progress, and a search needs every line to terminate.
@@ -52,13 +46,16 @@ pub enum PieceKind {
     Archer,
     Trebuchet,
     BatteringRam,
+    /// Neutral: it never moves or attacks, it blocks a move like any piece, and
+    /// either side's ordinary pieces may kill it.
+    Rock,
 }
 
-const SWORDSMAN_ATTACKS: [(i8, i8); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
-const FLAIL_ATTACKS: [(i8, i8); 4] = [(-1, -1), (-1, 1), (1, -1), (1, 1)];
-const SPEARMAN_ATTACKS: [(i8, i8); 4] = [(-2, 0), (2, 0), (0, -2), (0, 2)];
-const ARCHER_ATTACKS: [(i8, i8); 4] = [(-2, -2), (-2, 2), (2, -2), (2, 2)];
-const TREBUCHET_ATTACKS: [(i8, i8); 8] = [
+const SWORDSMAN_ZONE: [(i8, i8); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+const FLAIL_ZONE: [(i8, i8); 4] = [(-1, -1), (-1, 1), (1, -1), (1, 1)];
+const SPEARMAN_ZONE: [(i8, i8); 4] = [(-2, 0), (2, 0), (0, -2), (0, 2)];
+const ARCHER_ZONE: [(i8, i8); 4] = [(-2, -2), (-2, 2), (2, -2), (2, 2)];
+const TREBUCHET_ZONE: [(i8, i8); 8] = [
     (-3, 0),
     (3, 0),
     (0, -3),
@@ -68,23 +65,24 @@ const TREBUCHET_ATTACKS: [(i8, i8); 8] = [
     (3, -3),
     (3, 3),
 ];
-const RAM_ATTACKS: [(i8, i8); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+const RAM_ZONE: [(i8, i8); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
 impl PieceKind {
-    /// Squares this piece strikes, relative to where it stands. Nothing blocks
-    /// an attack: a spearman reaches over the square between it and its target.
-    pub fn attack_offsets(self) -> &'static [(i8, i8)] {
+    /// The piece's Attack Zone, relative to where it stands. Nothing blocks an
+    /// attack: a spearman reaches over the square between it and its target.
+    pub fn attack_zone(self) -> &'static [(i8, i8)] {
         match self {
-            PieceKind::Swordsman => &SWORDSMAN_ATTACKS,
-            PieceKind::Flail => &FLAIL_ATTACKS,
-            PieceKind::Spearman => &SPEARMAN_ATTACKS,
-            PieceKind::Archer => &ARCHER_ATTACKS,
-            PieceKind::Trebuchet => &TREBUCHET_ATTACKS,
-            PieceKind::BatteringRam => &RAM_ATTACKS,
+            PieceKind::Swordsman => &SWORDSMAN_ZONE,
+            PieceKind::Flail => &FLAIL_ZONE,
+            PieceKind::Spearman => &SPEARMAN_ZONE,
+            PieceKind::Archer => &ARCHER_ZONE,
+            PieceKind::Trebuchet => &TREBUCHET_ZONE,
+            PieceKind::BatteringRam => &RAM_ZONE,
+            PieceKind::Rock => &[],
         }
     }
 
-    /// Siege engines damage castles and nothing else; every other piece damages
+    /// Siege engines destroy castles and nothing else; every other piece kills
     /// pieces and nothing else. No piece does both.
     pub fn is_siege(self) -> bool {
         matches!(self, PieceKind::Trebuchet | PieceKind::BatteringRam)
@@ -95,6 +93,7 @@ impl PieceKind {
 #[serde(rename_all = "camelCase")]
 pub struct Piece {
     pub kind: PieceKind,
+    /// A player, or [`NEUTRAL`] for a rock.
     pub owner: u8,
 }
 
@@ -129,49 +128,50 @@ impl Square {
     }
 }
 
-/// Which of a player's two command tokens.
+/// Which of a player's two command tokens, named for its Move side.
 ///
-/// The `Row` token rides the left or right edge, names a row, and its movement
-/// face moves a piece from that row like a rook. The `Column` token rides the
-/// top or bottom edge, names a column, and its movement face moves a piece from
-/// that column like a bishop.
+/// The `March` token rides the left or right edge and names a row; its Move
+/// side moves a piece from that row vertically or horizontally. The `Flank`
+/// token rides the top or bottom edge and names a column; its Move side moves a
+/// piece from that column diagonally. Both share the same Attack side.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TokenKind {
-    Row,
-    Column,
+    March,
+    Flank,
 }
 
-pub const TOKEN_KINDS: [TokenKind; 2] = [TokenKind::Row, TokenKind::Column];
+pub const TOKEN_KINDS: [TokenKind; 2] = [TokenKind::March, TokenKind::Flank];
 
 impl TokenKind {
     pub fn index(self) -> usize {
         match self {
-            TokenKind::Row => 0,
-            TokenKind::Column => 1,
+            TokenKind::March => 0,
+            TokenKind::Flank => 1,
         }
     }
 
     pub fn other(self) -> TokenKind {
         match self {
-            TokenKind::Row => TokenKind::Column,
-            TokenKind::Column => TokenKind::Row,
+            TokenKind::March => TokenKind::Flank,
+            TokenKind::Flank => TokenKind::March,
         }
     }
 }
 
+/// Which side of a command token is face up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum TokenFace {
-    Movement,
+pub enum TokenSide {
+    Move,
     Attack,
 }
 
-impl TokenFace {
-    pub fn flipped(self) -> TokenFace {
+impl TokenSide {
+    pub fn flipped(self) -> TokenSide {
         match self {
-            TokenFace::Movement => TokenFace::Attack,
-            TokenFace::Attack => TokenFace::Movement,
+            TokenSide::Move => TokenSide::Attack,
+            TokenSide::Attack => TokenSide::Move,
         }
     }
 }
@@ -179,23 +179,23 @@ impl TokenFace {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Token {
-    /// Row index for a `Row` token, column index for a `Column` token.
+    /// Row index for the March token, column index for the Flank token.
     pub line: u8,
-    pub face: TokenFace,
+    pub side: TokenSide,
 }
 
 /// Where a turn is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Phase {
-    /// Slide a command token to a new line.
+    /// Slide the token showing its Move side to a new line.
     Slide,
     /// Choose which of the two tokens activates first.
     Order,
-    /// Spend the movement face at the head of the queue.
+    /// Spend the Move side at the head of the queue.
     Activate,
-    /// Aim one attacker of a volley. Each piece on the line fires in turn, so
-    /// an attack face costs as many decisions as it has pieces with a shot.
+    /// Aim one attacker of an Attack. Each piece on the line acts in turn, so
+    /// an Attack side costs as many decisions as it has pieces with a target.
     Attack,
     GameOver,
 }
@@ -203,19 +203,19 @@ pub enum Phase {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Choice {
-    /// Slide `token` to `line`. On a player's first turn this also picks which
-    /// of the two tokens is the one that acts.
-    Slide { token: TokenKind, line: u8 },
+    /// Slide the token showing its Move side to `line`. Exactly one token shows
+    /// it when a turn begins, so the line is the whole decision.
+    Slide { line: u8 },
     /// Activate `first` before the other token.
     Order { first: TokenKind },
-    /// Spend a movement activation moving a piece.
+    /// Spend a Move side moving a piece.
     Move { from: Square, to: Square },
-    /// Spend a movement activation without moving.
+    /// Spend a Move side without moving.
     Pass,
-    /// Fire the attacker on `from` at `target`. A piece commanded to attack
-    /// strikes one square, not everything its pattern covers.
+    /// The attacker on `from` kills or destroys what stands on `target`. An
+    /// attacker takes one target, not everything in its Attack Zone.
     Attack { from: Square, target: Square },
-    /// Leave the attacker on `from` unfired and move on down the line.
+    /// Leave the attacker on `from` idle and move on down the line.
     HoldFire { from: Square },
 }
 
@@ -229,13 +229,12 @@ pub enum Outcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameState {
+    /// Every piece on the board, the neutral rocks included.
     pub board: [[Option<Piece>; BOARD_COLS]; BOARD_ROWS],
     /// `castles[player][i]` is whether the castle on `CASTLE_COLS[i]` still
     /// stands. Castles are terrain, not pieces: they never move, never attack,
-    /// and a piece may stand on one.
+    /// and a piece may stand on its own.
     pub castles: [[bool; CASTLES_PER_PLAYER]; NUM_PLAYERS],
-    /// `walls[i]` is whether the wall on `WALL_SQUARES[i]` still stands.
-    pub walls: [bool; NUM_WALLS],
     /// Indexed by player, then by `TokenKind::index`.
     pub tokens: [[Token; 2]; NUM_PLAYERS],
     pub current_player: u8,
@@ -244,7 +243,7 @@ pub struct GameState {
     /// `pending_len` entries are meaningful.
     pub pending: [TokenKind; 2],
     pub pending_len: u8,
-    /// Under `Phase::Attack`, how far along the token's line the volley has
+    /// Under `Phase::Attack`, how far along the token's line the Attack has
     /// got: the index of the piece now choosing its target. Meaningless in
     /// every other phase.
     pub attack_index: u8,
@@ -270,6 +269,16 @@ impl GameState {
         &mut self.tokens[player as usize][kind.index()]
     }
 
+    /// The token the current player slides this turn: the one showing its Move
+    /// side. Every turn flips both tokens and the game starts with one on each
+    /// side, so exactly one shows it whenever a turn begins.
+    pub fn sliding_token(&self) -> TokenKind {
+        TOKEN_KINDS
+            .into_iter()
+            .find(|&kind| self.token(self.current_player, kind).side == TokenSide::Move)
+            .expect("a turn begins with one token on its Move side")
+    }
+
     pub fn opponent(player: u8) -> u8 {
         1 - player
     }
@@ -279,12 +288,12 @@ impl GameState {
             .flat_map(|row| (0..BOARD_COLS as u8).map(move |col| Square::new(row, col)))
     }
 
-    /// How many lines of this kind the board has: seven ranks for the row
-    /// token, nine files for the column token.
+    /// How many lines of this kind the board has: seven rows for the March
+    /// token, nine columns for the Flank token.
     pub fn line_count(kind: TokenKind) -> u8 {
         match kind {
-            TokenKind::Row => BOARD_ROWS as u8,
-            TokenKind::Column => BOARD_COLS as u8,
+            TokenKind::March => BOARD_ROWS as u8,
+            TokenKind::Flank => BOARD_COLS as u8,
         }
     }
 
@@ -293,8 +302,8 @@ impl GameState {
         Self::line_count(kind.other())
     }
 
-    /// The squares of `line`, which is a row for a `Row` token and a column for
-    /// a `Column` token.
+    /// The squares of `line`, which is a row for the March token and a column
+    /// for the Flank token.
     pub fn line_squares(kind: TokenKind, line: u8) -> impl Iterator<Item = Square> {
         (0..Self::line_len(kind)).map(move |index| Self::line_square(kind, line, index))
     }
@@ -302,8 +311,8 @@ impl GameState {
     /// The `index`th square of `line`, counting along the line.
     pub fn line_square(kind: TokenKind, line: u8, index: u8) -> Square {
         match kind {
-            TokenKind::Row => Square::new(line, index),
-            TokenKind::Column => Square::new(index, line),
+            TokenKind::March => Square::new(line, index),
+            TokenKind::Flank => Square::new(index, line),
         }
     }
 
@@ -313,12 +322,12 @@ impl GameState {
     }
 
     /// A hilltop as the board stands: one of the printed three, or a castle
-    /// that has been destroyed and taken a hilltop token in its place.
+    /// that has been destroyed and become a hilltop in its place.
     pub fn is_hilltop(&self, square: Square) -> bool {
-        Self::is_natural_hilltop(square) || self.razed_castle_at(square)
+        Self::is_natural_hilltop(square) || self.destroyed_castle_at(square)
     }
 
-    fn razed_castle_at(&self, square: Square) -> bool {
+    fn destroyed_castle_at(&self, square: Square) -> bool {
         matches!(
             Self::castle_slot_at(square),
             Some((owner, index)) if !self.castles[owner as usize][index]
@@ -333,28 +342,12 @@ impl GameState {
         }
     }
 
-    /// The wall slot `square` belongs to, if any, whether or not it stands.
-    pub fn wall_slot_at(square: Square) -> Option<usize> {
-        WALL_SQUARES.iter().position(|&wall| wall == square)
-    }
-
-    /// The slot of the wall still standing on `square`, if one is.
-    pub fn standing_wall_at(&self, square: Square) -> Option<usize> {
-        Self::wall_slot_at(square).filter(|&index| self.walls[index])
-    }
-
-    pub fn walls_standing(&self) -> usize {
-        self.walls.iter().filter(|&&w| w).count()
-    }
-
-    /// Whether terrain on `square` stops a slide. A piece may neither enter a
-    /// standing enemy castle nor a standing wall, and may not pass through
-    /// either. Its own castles are open ground.
-    pub fn blocks_slide(&self, square: Square, player: u8) -> bool {
-        self.standing_wall_at(square).is_some()
-            || self
-                .standing_castle_at(square)
-                .is_some_and(|owner| owner != player)
+    /// Whether terrain on `square` stops `player`'s move: a piece may neither
+    /// enter a standing enemy castle nor pass through one. Its own castles are
+    /// open ground.
+    pub fn blocks_move(&self, square: Square, player: u8) -> bool {
+        self.standing_castle_at(square)
+            .is_some_and(|owner| owner != player)
     }
 
     /// The castle slot `square` belongs to, if any, as `(owner, index)`.
@@ -378,22 +371,14 @@ impl GameState {
     }
 
     pub fn pieces_of(&self, player: u8) -> impl Iterator<Item = (Square, Piece)> + '_ {
-        self.pieces().filter(move |(_, piece)| piece.owner == player)
+        self.pieces()
+            .filter(move |(_, piece)| piece.owner == player)
     }
 
     pub fn siege_engines(&self, player: u8) -> usize {
         self.pieces_of(player)
             .filter(|(_, piece)| piece.kind.is_siege())
             .count()
-    }
-
-    /// True on a player's very first turn, which is the one turn where both
-    /// tokens still show their movement face. Every later turn flips both, so
-    /// the pair stays opposite forever after.
-    pub fn is_first_turn(&self) -> bool {
-        TOKEN_KINDS
-            .iter()
-            .all(|&kind| self.token(self.current_player, kind).face == TokenFace::Movement)
     }
 
     pub fn pending_tokens(&self) -> &[TokenKind] {

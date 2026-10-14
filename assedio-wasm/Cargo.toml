@@ -1,5 +1,5 @@
 [package]
-name = "command-slide-wasm"
+name = "assedio-wasm"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-command-slide-core = { path = "../command-slide-core" }
+assedio-core = { path = "../assedio-core" }
 serde.workspace = true
 serde_json.workspace = true
 wyrand.workspace = true

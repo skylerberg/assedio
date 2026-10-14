@@ -54,8 +54,8 @@
   <div class="tokens">
     {#each TOKEN_KINDS as kind (kind)}
       {@const token = tokenOf(game, player, kind)}
-      <span class="token-chip" class:armed={token.face === 'attack'}>
-        <TokenIcon {kind} face={token.face} owner={player} size={18} />
+      <span class="token-chip" class:armed={token.side === 'attack'}>
+        <TokenIcon {kind} side={token.side} owner={player} size={18} />
         <span class="where">{lineName(kind, token.line)}</span>
       </span>
     {/each}

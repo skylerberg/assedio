@@ -20,11 +20,12 @@
   import {
     PIECE_NAMES,
     PLAYER_NAMES,
+    TOKEN_NAMES,
     armedToken,
+    attackPending,
     pendingTokens,
     pieceAt,
     tokenOf,
-    volleyPending,
   } from '../data/types'
   import type {
     AttackPreview,
@@ -85,7 +86,7 @@
   let choices: Choice[] = $derived(isHumanTurn ? legalChoices(game) : [])
   let mustPass = $derived(choices.length === 1 && choices[0].type === 'pass')
 
-  /** The piece now choosing a target, while a volley walks its line. */
+  /** The piece now choosing a target, while an Attack walks its line. */
   let attackerSquare = $derived.by(() => {
     for (const choice of choices) {
       if (choice.type === 'attack' || choice.type === 'holdFire') return choice.from
@@ -99,12 +100,13 @@
   let viewer = $derived(humanSeats.length === 1 ? humanSeats[0] : game.currentPlayer)
 
   /** The side drawn nearest: yours, when exactly one seat is yours. Hot-seat
-      and watched games have no such side and keep the rules sheet's view. Fixed
-      for the game either way; a board that turned each turn would cost every
-      player the picture of the position they had built. */
-  let orientation = $derived(humanSeats.length === 1 ? humanSeats[0] : 1)
+      and watched games have no such side and keep the rules sheet's view, with
+      Ivory along the bottom. Fixed for the game either way; a board that turned
+      each turn would cost every player the picture of the position they had
+      built. */
+  let orientation = $derived(humanSeats.length === 1 ? humanSeats[0] : 0)
 
-  let volley = $derived.by(() => {
+  let attacks = $derived.by(() => {
     const result: Record<number, AttackPreview | null> = { 0: null, 1: null }
     for (const player of [0, 1]) {
       const kind = armedToken(game, player)
@@ -237,30 +239,24 @@
     advance()
   }
 
-  function tokenWord(kind: TokenKind): string {
-    return kind === 'row' ? 'rank' : 'file'
-  }
-
   function orderLabel(kind: TokenKind): string {
     const token = tokenOf(game, game.currentPlayer, kind)
     const where = lineName(kind, token.line)
-    return token.face === 'attack'
-      ? `Volley along ${where} first`
-      : `Move from ${where} first`
+    return token.side === 'attack'
+      ? `Attack along ${where} first`
+      : `${TOKEN_NAMES[kind]} from ${where} first`
   }
 
-  /** What choosing this order puts in front of the volley, so the choice reads
-      without counting squares. The question is only ever put when the volley
-      has a shot to take, so there is always something to count. */
+  /** What choosing this order puts in front of the Attack, so the choice reads
+      without counting squares. The question is only ever put when the Attack
+      has a target to take, so there is always something to count. */
   function orderNote(kind: TokenKind): string {
-    if (tokenOf(game, game.currentPlayer, kind).face !== 'attack') {
-      return 'the volley waits for the piece to land'
+    if (tokenOf(game, game.currentPlayer, kind).side !== 'attack') {
+      return 'the Attack waits for the piece to land'
     }
-    const preview = volley[game.currentPlayer]
+    const preview = attacks[game.currentPlayer]
     const targets =
-      (preview?.threatenedPieces.length ?? 0) +
-      (preview?.threatenedCastles.length ?? 0) +
-      (preview?.threatenedWalls.length ?? 0)
+      (preview?.threatenedPieces.length ?? 0) + (preview?.threatenedCastles.length ?? 0)
     return `${targets} ${targets === 1 ? 'target' : 'targets'} in reach now`
   }
 
@@ -268,15 +264,11 @@
     if (game.outcome) return ''
     if (!isHumanTurn) return `${PLAYER_NAMES[game.currentPlayer]} is deliberating…`
     if (game.phase === 'slide') {
-      const movable = choices
-        .filter((choice) => choice.type === 'slide')
-        .map((choice) => tokenWord(choice.token))
-      const unique = [...new Set(movable)]
-      return unique.length > 1
-        ? 'Opening move: slide either command token to a line holding one of your pieces.'
-        : `Slide your ${unique[0]} token to a ${unique[0]} holding one of your pieces.`
+      const kind = slides[0]?.token
+      if (!kind) return ''
+      return `Slide your ${TOKEN_NAMES[kind]} token to a new ${kind === 'march' ? 'row' : 'column'}.`
     }
-    if (game.phase === 'order') return 'Both activations are ready — which fires first?'
+    if (game.phase === 'order') return 'Both activations are ready — which goes first?'
     const kind = pendingTokens(game)[0]
     if (!kind) return ''
     const where = lineName(kind, tokenOf(game, game.currentPlayer, kind).line)
@@ -284,12 +276,12 @@
       if (!attackerSquare) return ''
       const piece = pieceAt(game, attackerSquare)
       const name = piece ? PIECE_NAMES[piece.kind] : 'attacker'
-      return `Volleying along ${where}: your ${name} on ${squareName(attackerSquare)} strikes one target.`
+      return `Attacking along ${where}: your ${name} on ${squareName(attackerSquare)} takes one target in its Attack Zone.`
     }
     if (mustPass) return `No piece on ${where} has a legal move.`
-    return kind === 'row'
-      ? `Move a piece from ${where} like a rook.`
-      : `Move a piece from ${where} like a bishop.`
+    return kind === 'march'
+      ? `March: move a piece from ${where} vertically or horizontally.`
+      : `Flank: move a piece from ${where} diagonally.`
   })
 
   /** The standing sentence under the prompt: what this decision is really
@@ -297,22 +289,22 @@
   let guidance = $derived.by(() => {
     if (game.outcome || !isHumanTurn) return ''
     if (game.phase === 'slide') {
-      return 'The line you choose is also where this token volleys next turn.'
+      return 'The line you choose is also where this token attacks next turn.'
     }
     if (game.phase === 'order') {
-      return 'A volley counts only the pieces standing on its line the moment it fires.'
+      return 'An Attack counts only the pieces standing on its line the moment it is made.'
     }
     if (game.phase === 'attack') {
       const left = attackers.length - 1
       return left > 0
-        ? `${left} more ${left === 1 ? 'attacker fires' : 'attackers fire'} after this one.`
-        : 'The last shot of this volley.'
+        ? `${left} more ${left === 1 ? 'attacker' : 'attackers'} after this one.`
+        : 'The last attacker on this line.'
     }
-    if (mustPass) return 'The activation passes; your volley still fires.'
-    if (!volleyPending(game)) return 'The volley has fired; this move ends the turn.'
+    if (mustPass) return 'The activation passes; your Attack still goes ahead.'
+    if (!attackPending(game)) return 'Your Attack is done; this move ends the turn.'
     const armed = pendingTokens(game)[1]
     const where = lineName(armed, tokenOf(game, game.currentPlayer, armed).line)
-    return `Your volley along ${where} fires the moment the piece lands.`
+    return `Your Attack along ${where} follows the moment the piece lands.`
   })
 
   let verdict = $derived.by(() => {
@@ -322,7 +314,7 @@
     const loser = 1 - winner
     const reason =
       game.castles[loser].every((standing) => !standing)
-        ? 'every castle razed'
+        ? 'every castle destroyed'
         : 'both siege engines destroyed'
     return `${PLAYER_NAMES[winner]} wins — ${PLAYER_NAMES[loser]} has ${reason}.`
   })
@@ -336,7 +328,7 @@
 <div class="screen">
   <header class="bar">
     <div class="titles">
-      <h1>Command Slide</h1>
+      <h1>Assedio</h1>
       <span class="small-caps">Turn {game.turn + 1} · {setup.difficulty}</span>
     </div>
     <div class="controls">
@@ -373,7 +365,7 @@
       <Board
         {game}
         legalChoices={choices}
-        {volley}
+        {attacks}
         moveOutcomes={outcomes}
         slideOutcomes={slides}
         pendingAttackers={attackers}
@@ -435,10 +427,10 @@
       </div>
 
       <div class="legend small-caps">
-        <span><i class="key own"></i> you can shoot</span>
-        <span><i class="key own-reach"></i> you cover</span>
-        <span><i class="key threat"></i> they can shoot</span>
-        <span><i class="key threat-reach"></i> they cover</span>
+        <span><i class="key own"></i> you can attack</span>
+        <span><i class="key own-reach"></i> your attack zone</span>
+        <span><i class="key threat"></i> they can attack</span>
+        <span><i class="key threat-reach"></i> their attack zone</span>
         <span><i class="key movable"></i> can move</span>
         <span><i class="key dest"></i> destination</span>
         <span><i class="key kill"></i> puts a target in reach</span>

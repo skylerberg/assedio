@@ -37,7 +37,7 @@
     <div class="crest">
       <PieceIcon kind="trebuchet" size={56} />
     </div>
-    <h1>Command Slide</h1>
+    <h1>Assedio</h1>
     <p class="tagline">
       Two command tokens, one board, and a siege that turns on where you point them.
     </p>

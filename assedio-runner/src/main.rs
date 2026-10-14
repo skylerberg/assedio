@@ -1,25 +1,26 @@
 //! Batch simulation for measuring the AI against itself.
 //!
-//! The evaluation in `command-slide-core` is hand-set, so the only honest way
+//! The evaluation in `assedio-core` is hand-set, so the only honest way
 //! to change it is to play the new numbers against the old ones and count.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use clap::{Parser, Subcommand};
-use command_slide_core::rand_core::{Rng, SeedableRng};
-use command_slide_core::rules::{apply, apply_logged, legal_choices_into, Casualty, GameEvent};
-use command_slide_core::search::{Ai, AiConfig, SearchContext};
-use command_slide_core::types::{
-    Choice, GameState, Outcome, PieceKind, Square, TokenFace, TokenKind, BOARD_COLS, BOARD_ROWS,
+use assedio_core::rand_core::{Rng, SeedableRng};
+use assedio_core::rules::{apply, apply_logged, legal_choices_into, Casualty, GameEvent};
+use assedio_core::search::{Ai, AiConfig, SearchContext};
+use assedio_core::types::{
+    Choice, GameState, Outcome, Piece, PieceKind, Square, TokenKind, TokenSide, BOARD_COLS,
+    BOARD_ROWS,
 };
-use command_slide_core::{initial_state, EvalParams};
+use assedio_core::{initial_state, EvalParams};
+use clap::{Parser, Subcommand};
 use wyrand::WyRand;
 
 mod tune;
 
 #[derive(Parser)]
-#[command(name = "command-slide-runner", about = "Command Slide batch simulation")]
+#[command(name = "assedio-runner", about = "Assedio batch simulation")]
 struct Cli {
     /// Games to play in parallel.
     #[arg(long, default_value_t = 8, global = true)]
@@ -127,8 +128,8 @@ enum Command {
 enum EndReason {
     #[default]
     TurnLimit,
-    CastlesRazed,
-    SiegeEliminated,
+    CastlesDestroyed,
+    SiegeDestroyed,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -145,9 +146,9 @@ impl GameResult {
             Some(Outcome::Winner { player }) => {
                 let loser = GameState::opponent(player);
                 if state.castles_standing(loser) == 0 {
-                    EndReason::CastlesRazed
+                    EndReason::CastlesDestroyed
                 } else {
-                    EndReason::SiegeEliminated
+                    EndReason::SiegeDestroyed
                 }
             }
             _ => EndReason::TurnLimit,
@@ -250,7 +251,7 @@ where
 fn summarize(results: &[GameResult], swapped_from: usize) {
     let mut wins = [0usize; 2];
     let mut draws = 0usize;
-    let mut razed = 0usize;
+    let mut destroyed = 0usize;
     let mut disarmed = 0usize;
 
     for (index, result) in results.iter().enumerate() {
@@ -259,11 +260,15 @@ fn summarize(results: &[GameResult], swapped_from: usize) {
         let swapped = index >= swapped_from;
         match result.outcome {
             Some(Outcome::Winner { player }) => {
-                let config = if swapped { GameState::opponent(player) } else { player };
+                let config = if swapped {
+                    GameState::opponent(player)
+                } else {
+                    player
+                };
                 wins[config as usize] += 1;
                 match result.reason {
-                    EndReason::CastlesRazed => razed += 1,
-                    EndReason::SiegeEliminated => disarmed += 1,
+                    EndReason::CastlesDestroyed => destroyed += 1,
+                    EndReason::SiegeDestroyed => disarmed += 1,
                     EndReason::TurnLimit => {}
                 }
             }
@@ -282,9 +287,7 @@ fn summarize(results: &[GameResult], swapped_from: usize) {
         draws,
         percent(draws),
     );
-    println!(
-        "won by razing castles: {razed}   by eliminating siege engines: {disarmed}",
-    );
+    println!("won by destroying castles: {destroyed}   by destroying siege engines: {disarmed}",);
     println!(
         "mean turns {:.1}   mean decisions {:.1}",
         results.iter().map(|r| r.turns as f64).sum::<f64>() / games,
@@ -292,61 +295,57 @@ fn summarize(results: &[GameResult], swapped_from: usize) {
     );
 }
 
-/// One letter per piece. Light is upper case, Dark lower.
-fn glyph(kind: PieceKind, owner: u8) -> char {
-    let letter = match kind {
+/// One letter per piece: Ivory upper case, Umber lower, and a rock `O`.
+fn glyph(piece: Piece) -> char {
+    let letter = match piece.kind {
         PieceKind::Swordsman => 'S',
         PieceKind::Flail => 'F',
         PieceKind::Spearman => 'P',
         PieceKind::Archer => 'A',
         PieceKind::Trebuchet => 'T',
         PieceKind::BatteringRam => 'R',
+        PieceKind::Rock => return 'O',
     };
-    if owner == 0 {
+    if piece.owner == 0 {
         letter
     } else {
         letter.to_ascii_lowercase()
     }
 }
 
-/// The board, with each side's tokens shown on the edges they ride: Light on
-/// the left and top, Dark on the right and bottom.
+/// The board as the rules sheet draws it, Umber across the top and Ivory along
+/// the bottom, with each side's tokens on the edges they ride: Umber's on the
+/// top and left, Ivory's on the bottom and right.
 fn render(state: &GameState) -> String {
-    let face = |player: u8, kind: TokenKind| {
-        match state.token(player, kind).face {
-            TokenFace::Movement => if kind == TokenKind::Row { "R>" } else { "B>" },
-            TokenFace::Attack => "!!",
+    let marker = |player: u8, kind: TokenKind, line: u8| {
+        let token = state.token(player, kind);
+        match token.side {
+            _ if token.line != line => ' ',
+            TokenSide::Move if kind == TokenKind::March => 'M',
+            TokenSide::Move => 'F',
+            TokenSide::Attack => '!',
         }
     };
-
-    let mut out = String::new();
-    let column_marker = |player: u8, col: u8| {
-        if state.token(player, TokenKind::Column).line == col {
-            face(player, TokenKind::Column)
-        } else {
-            "  "
-        }
+    // A marker sits over its column's cell, so each takes the cell's two
+    // characters: a space, then the mark.
+    let column_markers = |player: u8| {
+        let markers: String = (0..BOARD_COLS as u8)
+            .flat_map(|col| [' ', marker(player, TokenKind::Flank, col)])
+            .collect();
+        format!("     {markers}\n")
     };
 
-    out.push_str("      ");
-    for col in 0..BOARD_COLS as u8 {
-        out.push_str(column_marker(0, col));
-        out.push(' ');
-    }
-    out.push('\n');
-
-    for row in 0..BOARD_ROWS as u8 {
-        let left = if state.token(0, TokenKind::Row).line == row {
-            face(0, TokenKind::Row)
-        } else {
-            "  "
-        };
-        out.push_str(&format!("{left} {row} |"));
+    let mut out = column_markers(1);
+    for row in (0..BOARD_ROWS as u8).rev() {
+        out.push_str(&format!(
+            "{} {} |",
+            marker(1, TokenKind::March, row),
+            row + 1
+        ));
         for col in 0..BOARD_COLS as u8 {
             let square = Square::new(row, col);
             let cell = match state.piece_at(square) {
-                Some(piece) => glyph(piece.kind, piece.owner),
-                None if state.standing_wall_at(square).is_some() => 'O',
+                Some(piece) => glyph(piece),
                 None => match GameState::castle_slot_at(square) {
                     Some((owner, index)) if state.castles[owner as usize][index] => '#',
                     Some(_) => 'x',
@@ -357,58 +356,74 @@ fn render(state: &GameState) -> String {
             out.push(' ');
             out.push(cell);
         }
-        let right = if state.token(1, TokenKind::Row).line == row {
-            face(1, TokenKind::Row)
-        } else {
-            "  "
-        };
-        out.push_str(&format!(" | {right}\n"));
+        out.push_str(&format!(" | {}\n", marker(0, TokenKind::March, row)));
     }
-
-    out.push_str("      ");
-    for col in 0..BOARD_COLS as u8 {
-        out.push_str(column_marker(1, col));
-        out.push(' ');
-    }
-    out.push('\n');
+    out.push_str(&column_markers(0));
     out.push_str(
-        "      # castle  x razed castle, now a hilltop  ^ hilltop  O wall  R>/B> movement face  !! attack face\n",
+        "     # castle  x destroyed castle, now a hilltop  ^ hilltop  O rock  M/F Move side  ! Attack side\n",
     );
     out
 }
 
 fn describe(event: &GameEvent) -> String {
     match event {
-        GameEvent::Slid { player, token, from, to } => {
+        GameEvent::Slid {
+            player,
+            token,
+            from,
+            to,
+        } => {
             format!("  P{player} slides its {token:?} token from {from} to {to}")
         }
-        GameEvent::Moved { player, kind, from, to, .. } => format!(
+        GameEvent::Moved {
+            player,
+            kind,
+            from,
+            to,
+            ..
+        } => format!(
             "  P{player} moves {kind:?} ({},{}) -> ({},{})",
             from.row, from.col, to.row, to.col
         ),
         GameEvent::Passed { player, token } => {
             format!("  P{player} takes no action with its {token:?} token")
         }
-        GameEvent::Volley { player, token, line } => {
-            format!("  P{player} volleys with {token:?} {line}")
+        GameEvent::Attacked {
+            player,
+            token,
+            line,
+        } => {
+            format!("  P{player} attacks with its {token:?} token along {line}")
         }
-        GameEvent::Struck { player, kind, from, target, casualty, .. } => {
-            let shot = format!("  P{player} {kind:?} ({},{})", from.row, from.col);
+        GameEvent::Struck {
+            player,
+            kind,
+            from,
+            target,
+            casualty,
+            ..
+        } => {
+            let attacker = format!("  P{player} {kind:?} ({},{})", from.row, from.col);
             match casualty {
                 Casualty::Piece { piece } => format!(
-                    "{shot} kills {:?} at ({},{})",
+                    "{attacker} kills {:?} at ({},{})",
                     piece.kind, target.row, target.col
                 ),
                 Casualty::Castle => {
-                    format!("{shot} razes the castle at ({},{})", target.row, target.col)
-                }
-                Casualty::Wall => {
-                    format!("{shot} breaks the wall at ({},{})", target.row, target.col)
+                    format!(
+                        "{attacker} destroys the castle at ({},{})",
+                        target.row, target.col
+                    )
                 }
             }
         }
-        GameEvent::HeldFire { player, kind, from, .. } => {
-            format!("  P{player} {kind:?} ({},{}) holds its fire", from.row, from.col)
+        GameEvent::HeldFire {
+            player, kind, from, ..
+        } => {
+            format!(
+                "  P{player} {kind:?} ({},{}) holds its fire",
+                from.row, from.col
+            )
         }
         GameEvent::TurnEnded { .. } => String::new(),
         GameEvent::GameOver { outcome } => format!("  game over: {outcome:?}"),
