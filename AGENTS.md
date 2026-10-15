@@ -42,8 +42,10 @@ Rust workspace plus a Svelte frontend:
 - `pnpm run check` — svelte-check
 - `pnpm test` — frontend tests (Vitest)
 - `cargo test` — Rust tests
-- `pnpm run run-games -- <subcommand>` — the runner: `simulate`, `random`,
-  `replay`, `bench`
+- `pnpm run run-games <subcommand>` — the runner: `simulate`, `tune`,
+  `random`, `replay`, `bench`. No `--` before the subcommand: pnpm forwards
+  it to the script, and the runner then reads the subcommand as a stray
+  argument
 
 ## Architecture Notes
 
@@ -84,17 +86,18 @@ Rust workspace plus a Svelte frontend:
   `assedio-core/tests/wire_format.rs`. Change a serde attribute and change
   `src/data/types.ts` to match; the test is what catches the drift.
 - Changes to the evaluation in `search.rs` are judged by
-  `pnpm run run-games -- simulate`, playing the new numbers against the old.
-  `--params-a`/`--params-b` load weights from JSON.
-- `pnpm run run-games -- tune` searches those weights by self-play, via the
+  `pnpm run run-games simulate`, playing the new numbers against the old.
+  `--params-a`/`--params-b` load weights from JSON; `--iterations` sets both
+  sides' budget and `--iterations-a`/`--iterations-b` override one side.
+- `pnpm run run-games tune` searches those weights by self-play, via the
   `mcts-tune` crate. `assedio-runner/src/tune.rs` holds the gene mapping;
   it lives in the runner, not the core, because `mcts-tune` uses threads and the
   core compiles to wasm. `scale` is pinned — it is redundant with the weights it
   divides. `--resume` continues from `<output>/checkpoint.json`; pass the same
-  `--seed-params`, since fitness is a win rate against those weights.
-  `--field round-robin` measures candidates against each other instead of a
-  fixed baseline, which is what stops a long run saturating; fitness is then
-  relative and cannot be read as progress.
+  `--seed-params`, since the checkpoint refuses any others. Candidates play
+  each other by default (`--field round-robin`), which is what stops a long run
+  saturating; fitness is then relative and cannot be read as progress.
+  `--field baseline` measures them against the starting weights instead.
 
 ## Testing
 

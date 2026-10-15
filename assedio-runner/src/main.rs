@@ -35,12 +35,15 @@ enum Command {
     Simulate {
         #[arg(long, default_value_t = 20)]
         games: usize,
-        /// Search iterations per decision for configuration A.
+        /// Search iterations per decision for both configurations.
         #[arg(long, default_value_t = 4_000)]
-        iterations_a: u32,
-        /// Search iterations per decision for configuration B.
-        #[arg(long, default_value_t = 4_000)]
-        iterations_b: u32,
+        iterations: u32,
+        /// Iterations for configuration A alone, overriding --iterations.
+        #[arg(long)]
+        iterations_a: Option<u32>,
+        /// Iterations for configuration B alone, overriding --iterations.
+        #[arg(long)]
+        iterations_b: Option<u32>,
         /// Rollout plies for configuration A.
         #[arg(long, default_value_t = 8)]
         rollout_a: u32,
@@ -63,7 +66,7 @@ enum Command {
         #[arg(long, value_enum, default_value_t = tune::Strategy::CmaEs)]
         strategy: tune::Strategy,
         /// Who candidates are measured against.
-        #[arg(long, value_enum, default_value_t = tune::Field::Baseline)]
+        #[arg(long, value_enum, default_value_t = tune::Field::RoundRobin)]
         field: tune::Field,
         #[arg(long, default_value_t = 50)]
         generations: usize,
@@ -468,6 +471,7 @@ fn main() {
     match cli.command {
         Command::Simulate {
             games,
+            iterations,
             iterations_a,
             iterations_b,
             rollout_a,
@@ -476,6 +480,8 @@ fn main() {
             params_b,
             seed,
         } => {
+            let iterations_a = iterations_a.unwrap_or(iterations);
+            let iterations_b = iterations_b.unwrap_or(iterations);
             let weights = |path: &Option<std::path::PathBuf>| {
                 path.as_deref().map(tune::load_params).unwrap_or_default()
             };
