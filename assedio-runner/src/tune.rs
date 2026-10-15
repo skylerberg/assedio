@@ -320,30 +320,25 @@ pub fn run(args: &TuneArgs) {
             checkpoint.generations_done, checkpoint.games, checkpoint.best_fitness,
         );
     }
+    let config = TuneConfig {
+        generations: args.generations,
+        evaluation: Evaluation {
+            games: args.games_per_eval,
+            seed: args.seed,
+            threads: args.threads,
+            opponents: args.field.into(),
+        },
+        reseed_each_generation: args.reseed_each_generation,
+    };
     let remaining = args.generations - done.min(args.generations);
-    let per_generation = match args.field {
-        Field::Baseline => population * args.games_per_eval,
-        Field::RoundRobin => population * (population - 1) / 2 * args.games_per_eval,
-    };
-    let total_games = per_generation * remaining;
-    // Under a round robin every game scores both of its players, so a
-    // candidate's win rate rests on more games than `--games-per-eval` names.
-    let evidence = match args.field {
-        Field::Baseline => args.games_per_eval,
-        Field::RoundRobin => args.games_per_eval * (population - 1),
-    };
-    let shape = match args.field {
-        Field::Baseline => format!("{population} candidates x {} games", args.games_per_eval),
-        Field::RoundRobin => format!(
-            "{} pairings x {} games",
-            population * (population - 1) / 2,
-            args.games_per_eval
-        ),
-    };
+    let per_generation = config.evaluation.games_per_generation(population);
+    let evidence = config.evaluation.games_per_candidate(population);
     println!(
-        "{} over {} genes: {remaining} generations x {shape} = {total_games} games remaining",
+        "{} over {} genes, {population} candidates: {remaining} generations x {per_generation} \
+         games = {} games remaining",
         optimizer.name(),
         GENES.len(),
+        remaining * per_generation,
     );
     println!(
         "each game at {} iterations, {} rollout plies; {} games behind each win rate, so a \
@@ -377,16 +372,7 @@ pub fn run(args: &TuneArgs) {
     let report = mcts_tune::run(
         &arena,
         &mut *optimizer,
-        &TuneConfig {
-            generations: args.generations,
-            evaluation: Evaluation {
-                games: args.games_per_eval,
-                seed: args.seed,
-                threads: args.threads,
-                opponents: args.field.into(),
-            },
-            reseed_each_generation: args.reseed_each_generation,
-        },
+        &config,
         resume.as_ref(),
         |generation| {
             let best = seed_weights.with_genes(generation.best_genes).0;

@@ -230,7 +230,7 @@ dependencies = [
 [[package]]
 name = "mcts"
 version = "0.4.0"
-source = "git+https://github.com/skylerberg/monte_carlo?rev=f76677bd13f918a0a8b2a31ce691c70023ada031#f76677bd13f918a0a8b2a31ce691c70023ada031"
+source = "git+https://github.com/skylerberg/monte_carlo?rev=bf40accb4f160f3e0ae0ec6e063cd451bfcef8ed#bf40accb4f160f3e0ae0ec6e063cd451bfcef8ed"
 dependencies = [
  "hashbrown",
  "rand_core",
@@ -240,7 +240,7 @@ dependencies = [
 [[package]]
 name = "mcts-tune"
 version = "0.1.0"
-source = "git+https://github.com/skylerberg/monte_carlo?rev=f76677bd13f918a0a8b2a31ce691c70023ada031#f76677bd13f918a0a8b2a31ce691c70023ada031"
+source = "git+https://github.com/skylerberg/monte_carlo?rev=bf40accb4f160f3e0ae0ec6e063cd451bfcef8ed#bf40accb4f160f3e0ae0ec6e063cd451bfcef8ed"
 dependencies = [
  "mcts",
  "rand_core",
