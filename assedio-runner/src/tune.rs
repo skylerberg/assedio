@@ -3,8 +3,9 @@
 //! The weights in [`EvalParams`] were set by hand, and hand-set numbers in a
 //! fourteen-dimensional space are never the best ones available. This wires
 //! `mcts-tune` up to them: candidates are proposed, each plays a few hundred
-//! games against the parameters the run started from, and the win rates drive
-//! the search.
+//! games against the rest of its generation (or, with `--field baseline`,
+//! against the parameters the run started from), and the win rates drive the
+//! search.
 //!
 //! Read the output with the noise in mind. A win rate over `n` games carries a
 //! standard error of up to `sqrt(0.25 / n)` — 2.5 percentage points at 400
@@ -445,9 +446,19 @@ pub fn run(args: &TuneArgs) {
             report.best_fitness,
         ),
     }
+    // Without --params-b, simulate plays the built-in weights, which are only
+    // the run's starting point when no --seed-params was given.
+    let opponent = args.seed_params.as_ref().map_or(String::new(), |path| {
+        format!(" --params-b {}", path.display())
+    });
     println!(
-        "  run-games -- simulate --games 1000 --params-a {} --iterations-a <shipping budget>",
+        "  pnpm run run-games simulate --games 1000 --params-a {}{opponent} --iterations {}",
         final_path.display(),
+        args.eval_iterations,
+    );
+    println!(
+        "and again at each difficulty's budget in src/ai/aiController.ts: weights that win a \
+         shallow search need not win a deep one."
     );
 
     for (name, (seed, tuned)) in GENES.iter().zip(

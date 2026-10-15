@@ -84,12 +84,16 @@ cargo test                                     # engine, wire format, tuner
 pnpm test                                      # log, turn records, saves, helpers
 pnpm run check                                 # svelte-check
 
-pnpm run run-games -- bench                    # search throughput
-pnpm run run-games -- random --games 400       # rules terminate, both wins reachable
-pnpm run run-games -- replay --iterations 4000 # one game, printed move by move
-pnpm run run-games -- simulate --games 40 --iterations-a 20000 --iterations-b 3000
-pnpm run run-games -- tune --generations 50   # search the evaluation weights
+pnpm run run-games bench                     # search throughput
+pnpm run run-games random --games 400        # rules terminate, both wins reachable
+pnpm run run-games replay --iterations 4000  # one game, printed move by move
+pnpm run run-games simulate --games 40 --iterations-a 20000 --iterations-b 3000
+pnpm run run-games tune --generations 50     # search the evaluation weights
 ```
+
+Nothing goes between `run-games` and the subcommand. pnpm passes a `--` on to
+the script, where the runner reads it as the end of its options and fails to
+find the subcommand.
 
 `cargo test` covers each Attack Zone against the printed diagrams, the turn
 and token-flip structure, both win conditions, and the JSON wire format the
@@ -99,30 +103,39 @@ UI silently at runtime.
 `simulate` is how any change to the evaluation gets judged: play the new numbers
 against the old and count. The search scales monotonically with its budget —
 3k iterations beats 200 in two games of three, and 20k beats 3k in four of
-five — which is the signal that it is doing real work. Weights load from a file with `--params-a`, which is
-how a tuning run's output gets confirmed.
+five — which is the signal that it is doing real work. Weights load from a file
+with `--params-a` and `--params-b`, which is how a tuning run's output gets
+confirmed. `--iterations` sets both sides' search budget; `--iterations-a` and
+`--iterations-b` override one side, as above.
 
 ## Tuning the weights
 
 `tune` searches the fourteen evaluation weights by self-play, on the `mcts-tune`
 crate from the `monte_carlo` repository. Candidates are proposed by CMA-ES (or
-`--strategy ga`), each plays a few hundred games against the weights the run
-started from, and the win rates drive the search. Every generation writes its
+`--strategy ga`), each plays a few hundred games against the rest of its
+generation, and the win rates drive the search. Every generation writes its
 best weights to `tuning/gen-NNN.json` and appends a line to
-`tuning/history.jsonl`.
+`tuning/history.jsonl`, and the run's answer lands in `tuning/best.json`.
 
-By default candidates are measured against the weights the run started from.
-That gives fitness an absolute scale you can read progress from, and it
-saturates: a 100-generation run here plateaued at generation 8 and by generation
-43 the whole population sat between 0.88 and 0.94, closer together than the
-error on measuring them, so selection was ranking noise. `--field round-robin`
-plays the candidates against each other instead. The field improves with the
+```sh
+pnpm run run-games tune --generations 50
+pnpm run run-games tune --generations 50 --seed-params weights.json  # start elsewhere
+pnpm run run-games tune --generations 50 --field baseline
+```
+
+By default the candidates play each other. The field improves with the
 population, so there is nothing to saturate and no fixed opponent to specialise
-against, and every game scores two candidates rather than one — at equal cost
-each candidate is measured on twice as many games. The trade is that fitness
-becomes relative: the population mean is 0.5 in every generation by
-construction, so the column stops being a progress bar and `simulate
---params-a` is how you see whether the run is actually improving.
+against, and every game scores two candidates rather than one, so a generation
+costs half the games of one measured against a fixed opponent. The trade is that
+fitness is relative: the population mean is 0.5 in every generation by
+construction, so the fitness column is not a progress bar and `simulate` is how
+you see whether the run is actually improving.
+
+`--field baseline` measures every candidate against the weights the run started
+from instead. That gives fitness an absolute scale you can read progress from,
+and it saturates: a 100-generation run here plateaued at generation 8 and by
+generation 43 the whole population sat between 0.88 and 0.94, closer together
+than the error on measuring them, so selection was ranking noise.
 
 Three things about it are worth knowing before reading a result.
 
@@ -145,27 +158,49 @@ landing mid-write cannot destroy the state it exists to protect. Continue with
 the same command plus `--resume`:
 
 ```sh
-pnpm run run-games -- --threads 10 tune --generations 100 --resume
+pnpm run run-games tune --threads 10 --generations 100 --resume
 ```
 
-Pass the same `--seed-params` the original run used. Fitness is a win rate
-*against those weights*, so resuming against different ones — reaching for the
-previous run's output is the natural mistake — would restart the scale at even
-money and make every number after the resume incomparable with every number
-before it. That is refused rather than allowed to happen quietly.
+Pass the same `--seed-params` the original run used; resuming against different
+ones — reaching for the previous run's output is the natural mistake — is
+refused rather than allowed to happen quietly. They supply `scale`, which the
+run does not tune, and under `--field baseline` fitness is a win rate *against
+those weights*, so a different set would make every number after the resume
+incomparable with every number before it.
 
-**A run's reported best is biased upward.** It is a maximum over noisy
-measurements, so the luckiest candidate wins ties it would lose on a rerun.
-Confirm it before adopting it, at the budget the game actually ships:
+### Validating a result
+
+A run's fitness never says whether its answer beats the weights it started
+from. Under the round robin the best is scored against its own generation, and
+under `--field baseline` it is a maximum over noisy measurements, so the
+luckiest candidate wins ties it would lose on a rerun. Play it against the
+starting weights before adopting it:
 
 ```sh
-pnpm run run-games -- simulate --games 1000 \
-  --params-a tuning/best.json --iterations-a 50000 --iterations-b 50000
+pnpm run run-games simulate --games 1000 --params-a tuning/best.json --iterations 4000
 ```
 
-That last point is the one to watch: weights matter most when the tree is
-shallow, so weights tuned at `--eval-iterations 4000` are tuned for a regime the
-browser's higher difficulties never play in.
+Without `--params-b` the other side plays the built-in weights, so add
+`--params-b weights.json` if the run started from `--seed-params`. Count a draw
+as half a win; over 1,000 games the result carries a standard error of about
+1.6 points, so 53% is suggestive and 55% is convincing.
+
+Then repeat at the budgets the browser plays at — Squire 4,000, Knight 30,000,
+Marshal 120,000 and Warlord 500,000 iterations (`src/ai/aiController.ts`):
+
+```sh
+pnpm run run-games simulate --games 1000 --params-a tuning/best.json --iterations 30000
+```
+
+Weights matter most when the tree is shallow, so a run at the default
+`--eval-iterations 4000` tunes for Squire, and a deeper search can erase the
+gain. The cost of a game grows with its budget, so lower `--threads` if the
+machine is busy.
+
+To see whether a round-robin run kept improving, play a few of its generations
+against the starting weights the same way. Later generations should score
+higher; if they do not, the population was cycling, and an earlier
+`tuning/gen-NNN.json` may be the better pick.
 
 ## A note on the game
 
