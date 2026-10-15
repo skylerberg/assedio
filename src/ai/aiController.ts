@@ -27,10 +27,16 @@ export class AiController {
     resolve: (turn: AiTurn) => void
     reject: (error: Error) => void
   } | null = null
+  /** A search begun before the board reached its position. */
+  private ahead: { key: string; turn: Promise<AiTurn> } | null = null
 
   constructor() {
-    this.worker = new AiWorkerModule()
-    this.worker.onmessage = (event: MessageEvent<AiResponse>) => {
+    this.worker = this.spawn()
+  }
+
+  private spawn(): Worker {
+    const worker = new AiWorkerModule()
+    worker.onmessage = (event: MessageEvent<AiResponse>) => {
       const waiting = this.pending
       if (!waiting || waiting.id !== event.data.id) return
       this.pending = null
@@ -41,9 +47,32 @@ export class AiController {
         waiting.resolve({ choices, state, events })
       }
     }
+    return worker
   }
 
+  /** The machine's turn from this position: the search begun ahead for it if
+      there is one, otherwise a fresh one. */
   takeTurn(state: GameState, iterations: number): Promise<AiTurn> {
+    const ahead = this.ahead
+    if (ahead && ahead.key === key(state, iterations)) {
+      this.ahead = null
+      return ahead.turn
+    }
+    if (ahead) this.cancel()
+    return this.search(state, iterations)
+  }
+
+  /** Start searching a position the board has yet to reach. When two machines
+      play, the next one's position is known the moment the last one's search
+      returns, so it can think while that turn is still being shown. */
+  searchAhead(state: GameState, iterations: number): void {
+    const turn = this.search(state, iterations)
+    // A failure is the turn's to report when it is taken, not before.
+    turn.catch(() => {})
+    this.ahead = { key: key(state, iterations), turn }
+  }
+
+  private search(state: GameState, iterations: number): Promise<AiTurn> {
     const id = this.nextId++
     return new Promise((resolve, reject) => {
       this.pending = { id, resolve, reject }
@@ -52,12 +81,23 @@ export class AiController {
     })
   }
 
-  /** Abandon any reply still in flight. */
+  /** Abandon any search in flight, and any begun ahead. The worker cannot be
+      interrupted mid-search, and the next request would queue behind it, so a
+      busy one is replaced. */
   cancel(): void {
+    if (this.pending) {
+      this.worker.terminate()
+      this.worker = this.spawn()
+    }
     this.pending = null
+    this.ahead = null
   }
 
   dispose(): void {
     this.worker.terminate()
   }
+}
+
+function key(state: GameState, iterations: number): string {
+  return `${iterations}:${JSON.stringify(state)}`
 }
