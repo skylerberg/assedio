@@ -2,7 +2,7 @@
 // which piece is which, so the interface can replay, animate and sum it up.
 
 import { BOARD_COLS, BOARD_ROWS, NEUTRAL } from './types'
-import type { Casualty, GameEvent, GameState, Square, TokenKind } from './types'
+import type { Casualty, GameEvent, GameState, Piece, Square, TokenKind } from './types'
 
 export interface Turn {
   player: number
@@ -126,6 +126,29 @@ export function advanceIds(ids: PieceIds, events: GameEvent[]): PieceIds {
     }
   }
   return result
+}
+
+export interface PlacedPiece {
+  id: number
+  square: Square
+  piece: Piece
+}
+
+/** Every piece on the board, in id order rather than board order. The board
+    draws them in a keyed each, which moves the node of any piece whose place
+    in the list changes, and a moved node jumps to its new square instead of
+    travelling there. No move changes the order of the ids. */
+export function piecesInIdOrder(state: GameState, ids: PieceIds): PlacedPiece[] {
+  const list: PlacedPiece[] = []
+  for (let row = 0; row < BOARD_ROWS; row++) {
+    for (let col = 0; col < BOARD_COLS; col++) {
+      const piece = state.board[row][col]
+      if (!piece) continue
+      const index = squareIndex({ row, col })
+      list.push({ id: ids[index] || -1 - index, square: { row, col }, piece })
+    }
+  }
+  return list.sort((a, b) => a.id - b.id)
 }
 
 /** The ids as they stood after the first `count` turns, replayed from the
