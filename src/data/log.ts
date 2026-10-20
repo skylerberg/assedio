@@ -23,7 +23,7 @@ export interface LogEntry {
   tone?: 'kill' | 'quiet' | 'outcome'
 }
 
-/** Columns run a-i and rows 1-7 up from Ivory's back row, as the rules sheet
+/** Columns run a-i and rows 1-9 up from Ivory's back row, as the rules sheet
     draws the board. */
 export function squareName(square: Square): string {
   return `${COLUMN_LETTERS[square.col]}${square.row + 1}`

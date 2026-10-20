@@ -119,7 +119,7 @@
   /** A touch has picked this slide or destination; a second touch commits. */
   let pendingTap = $state<{ slide: number } | { to: Square } | null>(null)
   let lastPointer = 'mouse'
-  let focusKey = $state(squareKey({ row: 3, col: 4 }))
+  let focusKey = $state(squareKey({ row: (BOARD_ROWS - 1) / 2, col: (BOARD_COLS - 1) / 2 }))
   let gridEl = $state<HTMLDivElement | null>(null)
 
   let near = $derived(orientation)
@@ -296,11 +296,11 @@
     const ownEdge = player === near
     if (kind === 'flank') {
       return `--x:calc(var(--track) + ${cols.indexOf(line) + 0.5} * var(--cell));--y:${
-        ownEdge ? 'calc(1.5 * var(--track) + 7 * var(--cell))' : 'calc(var(--track) / 2)'
+        ownEdge ? `calc(1.5 * var(--track) + ${BOARD_ROWS} * var(--cell))` : 'calc(var(--track) / 2)'
       }`
     }
     return `--y:calc(var(--track) + ${rows.indexOf(line) + 0.5} * var(--cell));--x:${
-      ownEdge ? 'calc(1.5 * var(--track) + 9 * var(--cell))' : 'calc(var(--track) / 2)'
+      ownEdge ? `calc(1.5 * var(--track) + ${BOARD_COLS} * var(--cell))` : 'calc(var(--track) / 2)'
     }`
   }
 
@@ -507,7 +507,7 @@
   }}
 />
 
-<div class="board-frame">
+<div class="board-frame" style={`--rows:${BOARD_ROWS};--cols:${BOARD_COLS}`}>
   <div class="grid" bind:this={gridEl} role="group" aria-label="Board">
     {#each [far, near] as player, edge (player)}
       {@const rowTrack = edge === 0 ? 1 : BOARD_ROWS + 2}
@@ -682,15 +682,15 @@
 <style>
   .board-frame {
     --pad: 4px;
-    /* Nine columns and two token tracks at 0.72 of a cell across; seven rows
+    /* The columns and two token tracks at 0.72 of a cell across; the rows
        and two tracks down. The cell is whichever of the space's two sides is
        tighter, divided by that many cells. The space comes from the parent as
        --avail-w and --avail-h, measured however its layout allows. */
     --cell: clamp(
       24px,
       min(
-        calc((var(--avail-w, 100vw) - 2 * var(--pad)) / 10.44),
-        calc((var(--avail-h, 100vh) - 2 * var(--pad)) / 8.44)
+        calc((var(--avail-w, 100vw) - 2 * var(--pad)) / (var(--cols) + 1.44)),
+        calc((var(--avail-h, 100vh) - 2 * var(--pad)) / (var(--rows) + 1.44))
       ),
       112px
     );
@@ -705,8 +705,8 @@
   .grid {
     position: relative;
     display: grid;
-    grid-template-columns: var(--track) repeat(9, var(--cell)) var(--track);
-    grid-template-rows: var(--track) repeat(7, var(--cell)) var(--track);
+    grid-template-columns: var(--track) repeat(var(--cols), var(--cell)) var(--track);
+    grid-template-rows: var(--track) repeat(var(--rows), var(--cell)) var(--track);
   }
 
   .layer {
@@ -833,8 +833,8 @@
   }
 
   .frame-line {
-    grid-row: 2 / span 7;
-    grid-column: 2 / span 9;
+    grid-row: 2 / span var(--rows);
+    grid-column: 2 / span var(--cols);
     border: 3px solid var(--board-line);
     pointer-events: none;
   }

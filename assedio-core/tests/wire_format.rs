@@ -37,21 +37,26 @@ fn game_state_serializes_with_the_keys_the_ui_reads() {
 
     assert_eq!(field(&value, "phase"), json!("slide"));
     assert_eq!(field(&value, "outcome"), json!(null));
-    // Nine columns to a row, seven rows to the board.
-    assert_eq!(field(&value, "board").as_array().unwrap().len(), 7);
+    // Nine columns to a row, nine rows to the board.
+    assert_eq!(field(&value, "board").as_array().unwrap().len(), 9);
     assert_eq!(field(&value, "board")[0].as_array().unwrap().len(), 9);
     assert_eq!(
         field(&value, "board")[0][4],
         json!({ "kind": "trebuchet", "owner": 0 }),
     );
     assert_eq!(
-        field(&value, "board")[0][1],
+        field(&value, "board")[1][4],
+        json!({ "kind": "batteringRam", "owner": 0 }),
+        "on its middle castle"
+    );
+    assert_eq!(
+        field(&value, "board")[1][1],
         json!(null),
-        "its castle square"
+        "its outer castle square"
     );
     assert_eq!(field(&value, "board")[0][0], json!(null), "the empty wing");
     assert_eq!(
-        field(&value, "board")[3][2],
+        field(&value, "board")[4][2],
         json!({ "kind": "rock", "owner": 2 }),
         "a rock is a piece that belongs to neither side",
     );
@@ -65,7 +70,7 @@ fn game_state_serializes_with_the_keys_the_ui_reads() {
         assert_eq!(
             field(&value, "tokens")[player],
             json!([
-                { "line": 3, "side": "attack" },
+                { "line": 4, "side": "attack" },
                 { "line": 4, "side": "move" },
             ]),
         );
@@ -90,32 +95,32 @@ fn choices_are_a_tagged_union() {
         ),
         (
             Choice::Move {
-                from: Square::new(1, 2),
-                to: Square::new(3, 2),
+                from: Square::new(2, 2),
+                to: Square::new(4, 2),
             },
             json!({
                 "type": "move",
-                "from": { "row": 1, "col": 2 },
-                "to": { "row": 3, "col": 2 },
+                "from": { "row": 2, "col": 2 },
+                "to": { "row": 4, "col": 2 },
             }),
         ),
         (Choice::Pass, json!({ "type": "pass" })),
         (
             Choice::Attack {
-                from: Square::new(3, 4),
-                target: Square::new(6, 1),
+                from: Square::new(4, 4),
+                target: Square::new(7, 1),
             },
             json!({
                 "type": "attack",
-                "from": { "row": 3, "col": 4 },
-                "target": { "row": 6, "col": 1 },
+                "from": { "row": 4, "col": 4 },
+                "target": { "row": 7, "col": 1 },
             }),
         ),
         (
             Choice::HoldFire {
-                from: Square::new(3, 4),
+                from: Square::new(4, 4),
             },
-            json!({ "type": "holdFire", "from": { "row": 3, "col": 4 } }),
+            json!({ "type": "holdFire", "from": { "row": 4, "col": 4 } }),
         ),
     ];
 
@@ -142,20 +147,20 @@ fn events_use_camel_case_field_names() {
     let mut state = initial_state();
     state.board = Board::EMPTY;
     for (row, col, kind, owner) in [
-        (3, 2, PieceKind::Rock, NEUTRAL),
-        (3, 6, PieceKind::Rock, NEUTRAL),
-        (3, 1, PieceKind::Swordsman, 0),
-        (3, 4, PieceKind::Trebuchet, 0),
-        (3, 7, PieceKind::Swordsman, 0),
-        (0, 3, PieceKind::BatteringRam, 0),
-        (2, 1, PieceKind::Archer, 1),
-        (6, 2, PieceKind::Trebuchet, 1),
-        (6, 3, PieceKind::BatteringRam, 1),
+        (4, 2, PieceKind::Rock, NEUTRAL),
+        (4, 6, PieceKind::Rock, NEUTRAL),
+        (4, 1, PieceKind::Swordsman, 0),
+        (4, 4, PieceKind::Trebuchet, 0),
+        (4, 7, PieceKind::Swordsman, 0),
+        (1, 3, PieceKind::BatteringRam, 0),
+        (3, 1, PieceKind::Archer, 1),
+        (7, 2, PieceKind::Trebuchet, 1),
+        (7, 3, PieceKind::BatteringRam, 1),
     ] {
         state.set_piece(Square::new(row, col), Some(Piece { kind, owner }));
     }
     *state.token_mut(0, TokenKind::March) = Token {
-        line: 3,
+        line: 4,
         side: TokenSide::Attack,
     };
     state.pending = [TokenKind::March, TokenKind::Flank];
@@ -165,7 +170,7 @@ fn events_use_camel_case_field_names() {
     let events = settle_state(&mut state);
     assert_eq!(
         serde_json::to_value(&events[0]).unwrap(),
-        json!({ "type": "attacked", "player": 0, "token": "march", "line": 3 }),
+        json!({ "type": "attacked", "player": 0, "token": "march", "line": 4 }),
     );
 
     // The swordsman on the left hilltop kills the archer next to it, passing
@@ -173,8 +178,8 @@ fn events_use_camel_case_field_names() {
     let events = apply_logged(
         &mut state,
         &Choice::Attack {
-            from: Square::new(3, 1),
-            target: Square::new(2, 1),
+            from: Square::new(4, 1),
+            target: Square::new(3, 1),
         },
     );
     assert_eq!(
@@ -184,8 +189,8 @@ fn events_use_camel_case_field_names() {
             "player": 0,
             "token": "march",
             "kind": "swordsman",
-            "from": { "row": 3, "col": 1 },
-            "target": { "row": 2, "col": 1 },
+            "from": { "row": 4, "col": 1 },
+            "target": { "row": 3, "col": 1 },
             "casualty": { "type": "piece", "piece": { "kind": "archer", "owner": 1 } },
         }),
     );
@@ -195,8 +200,8 @@ fn events_use_camel_case_field_names() {
     let events = apply_logged(
         &mut state,
         &Choice::Attack {
-            from: Square::new(3, 4),
-            target: Square::new(6, 1),
+            from: Square::new(4, 4),
+            target: Square::new(7, 1),
         },
     );
     assert_eq!(
@@ -206,8 +211,8 @@ fn events_use_camel_case_field_names() {
             "player": 0,
             "token": "march",
             "kind": "trebuchet",
-            "from": { "row": 3, "col": 4 },
-            "target": { "row": 6, "col": 1 },
+            "from": { "row": 4, "col": 4 },
+            "target": { "row": 7, "col": 1 },
             "casualty": { "type": "castle" },
         }),
     );
@@ -216,8 +221,8 @@ fn events_use_camel_case_field_names() {
     let events = apply_logged(
         &mut state,
         &Choice::Attack {
-            from: Square::new(3, 7),
-            target: Square::new(3, 6),
+            from: Square::new(4, 7),
+            target: Square::new(4, 6),
         },
     );
     assert_eq!(
@@ -227,12 +232,12 @@ fn events_use_camel_case_field_names() {
             "player": 0,
             "token": "march",
             "kind": "swordsman",
-            "from": { "row": 3, "col": 7 },
-            "target": { "row": 3, "col": 6 },
+            "from": { "row": 4, "col": 7 },
+            "target": { "row": 4, "col": 6 },
             "casualty": { "type": "piece", "piece": { "kind": "rock", "owner": 2 } },
         }),
     );
-    assert_eq!(state.piece_at(Square::new(3, 6)), None);
+    assert_eq!(state.piece_at(Square::new(4, 6)), None);
 }
 
 #[test]
@@ -240,15 +245,15 @@ fn holding_fire_is_its_own_event() {
     let mut state = initial_state();
     state.board = Board::EMPTY;
     for (row, col, kind, owner) in [
-        (3, 1, PieceKind::Swordsman, 0),
-        (0, 3, PieceKind::Trebuchet, 0),
-        (2, 1, PieceKind::Archer, 1),
-        (6, 2, PieceKind::Trebuchet, 1),
+        (4, 1, PieceKind::Swordsman, 0),
+        (1, 3, PieceKind::Trebuchet, 0),
+        (3, 1, PieceKind::Archer, 1),
+        (7, 2, PieceKind::Trebuchet, 1),
     ] {
         state.set_piece(Square::new(row, col), Some(Piece { kind, owner }));
     }
     *state.token_mut(0, TokenKind::March) = Token {
-        line: 3,
+        line: 4,
         side: TokenSide::Attack,
     };
     state.pending = [TokenKind::March, TokenKind::Flank];
@@ -259,7 +264,7 @@ fn holding_fire_is_its_own_event() {
     let events = apply_logged(
         &mut state,
         &Choice::HoldFire {
-            from: Square::new(3, 1),
+            from: Square::new(4, 1),
         },
     );
     assert_eq!(
@@ -269,7 +274,7 @@ fn holding_fire_is_its_own_event() {
             "player": 0,
             "token": "march",
             "kind": "swordsman",
-            "from": { "row": 3, "col": 1 },
+            "from": { "row": 4, "col": 1 },
         }),
     );
 }

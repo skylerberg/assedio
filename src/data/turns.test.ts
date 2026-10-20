@@ -34,8 +34,8 @@ const razed: GameEvent = {
   player: 1,
   token: 'march',
   kind: 'batteringRam',
-  from: { row: 1, col: 4 },
-  target: { row: 0, col: 4 },
+  from: { row: 2, col: 4 },
+  target: { row: 1, col: 4 },
   casualty: { type: 'castle' },
 }
 const ended = (player: number): GameEvent => ({ type: 'turnEnded', player })

@@ -1,6 +1,6 @@
 # Assedio
 
-A two-player siege game on a board nine columns across and seven rows deep.
+A two-player siege game on a board nine columns across and nine rows deep.
 Each side commands ten pieces, two command tokens and three castles, and four
 neutral rocks stand between them.
 
@@ -13,43 +13,48 @@ Rows count up from Ivory's back row, and columns run a to i from Ivory's left.
             a    b    c    d    e    f    g    h    i
                                 [F]                         Umber's Flank token
          ┌────┬────┬────┬────┬────┬────┬────┬────┬────┐
-       7 │    │ ▣C │ Sp │ Ar │ ▣C │ Ar │ Sp │ ▣C │    │      Umber back row
-         ├────┼────┼────┼────┼────┼────┼────┼────┼────┤      (the trebuchet starts
-       6 │    │    │ Sw │ Fl │ Rm │ Fl │ Sw │    │    │       on the middle castle)
+       9 │    │    │ Sp │ Ar │ Tr │ Ar │ Sp │    │    │      Umber back row
          ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
-       5 │    │    │    │    │    │    │    │    │    │
+       8 │    │ ▣C │ Sw │ Fl │ ▣C │ Fl │ Sw │ ▣C │    │      Umber castle row
+         ├────┼────┼────┼────┼────┼────┼────┼────┼────┤      (the ram starts on
+       7 │    │    │    │    │    │    │    │    │    │       the middle castle)
          ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
-  [A]  4 │    │ ▲H │ Rk │ Rk │ ▲H │ Rk │ Rk │ ▲H │    │ [A]  hilltops and rocks
+       6 │    │    │    │    │    │    │    │    │    │
+         ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
+  [A]  5 │    │ ▲H │ Rk │ Rk │ ▲H │ Rk │ Rk │ ▲H │    │ [A]  hilltops and rocks
+         ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
+       4 │    │    │    │    │    │    │    │    │    │
          ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
        3 │    │    │    │    │    │    │    │    │    │
          ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
-       2 │    │    │ Sw │ Fl │ Rm │ Fl │ Sw │    │    │
+       2 │    │ ▣C │ Sw │ Fl │ ▣C │ Fl │ Sw │ ▣C │    │      Ivory castle row
          ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
-       1 │    │ ▣C │ Sp │ Ar │ ▣C │ Ar │ Sp │ ▣C │    │      Ivory back row
+       1 │    │    │ Sp │ Ar │ Tr │ Ar │ Sp │    │    │      Ivory back row
          └────┴────┴────┴────┴────┴────┴────┴────┴────┘
                                 [F]                         Ivory's Flank token
 ```
 
-`Sp` spearman · `Ar` archer · `Sw` swordsman · `Fl` flail · `Rm` battering ram ·
-`Rk` rock. The trebuchet (not shown) stands on each side's middle castle at e1
-and e7. `[A]` is a March token Attack side up — Umber's on the left edge, Ivory's
-on the right — and `[F]` a Flank token Move side up. The outer columns, a and i,
-carry no terrain and start empty: they are the room the armies have to work
-around the rocks.
+`Sp` spearman · `Ar` archer · `Tr` trebuchet · `Sw` swordsman · `Fl` flail ·
+`Rk` rock. The battering ram (not shown) stands on each side's middle castle at
+e2 and e8. `[A]` is a March token Attack side up — Umber's on the left edge,
+Ivory's on the right — and `[F]` a Flank token Move side up. The outer columns,
+a and i, carry no terrain and start empty: they are the room the armies have to
+work around the rocks. The outer rows, 1 and 9, lie behind the castles, and each
+army's back row starts there, three rows of open ground from the middle.
 
 **Castles** are terrain, not pieces. They never move and never attack, and only
 a siege engine can destroy one. You may stand a piece on your own castle — the
-trebuchet opens the game doing exactly that — but you cannot move onto an enemy
+battering ram opens the game doing exactly that — but you cannot move onto an enemy
 castle space, nor through one. **If a castle is destroyed, it becomes a
 hilltop**, ordinary high ground either side may occupy.
 
-**Hilltops** are the three middle-row squares b4, e4 and h4, plus every castle
+**Hilltops** are the three middle-row squares b5, e5 and h5, plus every castle
 that has been destroyed. Pieces can move onto hilltops. They mark where
 trebuchets can attack from: castles and hilltops share columns, which puts every
 castle exactly three squares from a hilltop.
 
 **Rocks** are neutral pieces on the four middle-row squares between the
-hilltops — c4, d4, f4 and g4 — and can be killed by your attacks. Like any
+hilltops — c5, d5, f5 and g5 — and can be killed by your attacks. Like any
 piece, a rock stops a move: nothing may enter its square or pass through it.
 Siege engines only ever destroy castles, so it is the rest of an army that
 kills a rock, and the square is open ground thereafter. Each hilltop is walled
@@ -84,7 +89,7 @@ side.
 
 Each side's Flank token rides the edge beside its own back row, and its March
 token the edge to its right. Both sides start with the March token Attack side
-up on the middle row, row 4, and the Flank token Move side up on the middle
+up on the middle row, row 5, and the Flank token Move side up on the middle
 column, column e.
 
 ## Your turn
@@ -158,11 +163,11 @@ has become a hilltop.
 
 From the centre hilltop a trebuchet bears on *every* castle on the board — and
 brings down one of them a turn, since a piece takes a single target. That makes
-e4 the sharpest square in the game and the trebuchet's approach the thing both
-sides are really playing around — and the rocks on d4 and f4 mean no March along
-row 4 reaches it until one of them is killed. A castle that falls hands back high
-ground: destroy Umber's outer castle on b7 and a trebuchet standing there bears
-on e7, three squares along the back row.
+e5 the sharpest square in the game and the trebuchet's approach the thing both
+sides are really playing around — and the rocks on d5 and f5 mean no March along
+row 5 reaches it until one of them is killed. A castle that falls hands back high
+ground: destroy Umber's outer castle on b8 and a trebuchet standing there bears
+on e8, three squares along the castle row.
 
 ## Interpretations
 
@@ -175,9 +180,9 @@ this is the one the engine implements:
   column. That is also the only kind of opening in which "the token on its Move
   side" names a single token from the very first turn.
 * **Castles are terrain.** The sheet says three castles and its board draws two
-  per side — but the back-row middle square is shaded like the outer two and
-  holds the trebuchet. Castles therefore sit on the back row in columns b, e
-  and h, and the trebuchet starts standing on the middle one.
+  per side — but the middle square between them is shaded like the outer two.
+  Castles therefore stand in columns b, e and h, one row in from each side's
+  edge, and the battering ram starts standing on the middle one.
 * **An enemy castle blocks a move entirely.** "You cannot move onto an enemy
   Castle space" is read as an obstacle rather than a forbidden destination: a
   move stops before it, the way it stops before a piece.

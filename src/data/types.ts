@@ -2,12 +2,13 @@
 // Rust side by `assedio-core/tests/wire_format.rs`; change one and change the
 // other.
 
-/** Nine columns across, seven rows up: the outer column on each wing is empty. */
-export const BOARD_ROWS = 7
+/** Nine columns across, nine rows up: the outer column on each wing is empty,
+    and each side's back row lies behind its castles. */
+export const BOARD_ROWS = 9
 export const BOARD_COLS = 9
 export const CASTLE_COLS = [1, 4, 7]
-export const BACK_ROW = [0, 6]
-export const HILLTOP_ROW = 3
+export const CASTLE_ROW = [1, 7]
+export const HILLTOP_ROW = 4
 export const HILLTOP_COLS = CASTLE_COLS
 /** The owner of a rock, which belongs to neither side. */
 export const NEUTRAL = 2
@@ -201,7 +202,7 @@ export function isHilltop(state: GameState, square: Square): boolean {
 
 /** The castle slot on `square`, whether or not that castle still stands. */
 export function castleSlotAt(square: Square): { owner: number; index: number } | null {
-  const owner = BACK_ROW.indexOf(square.row)
+  const owner = CASTLE_ROW.indexOf(square.row)
   const index = CASTLE_COLS.indexOf(square.col)
   if (owner < 0 || index < 0) return null
   return { owner, index }

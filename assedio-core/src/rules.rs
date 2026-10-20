@@ -142,9 +142,10 @@ impl EventSink for Vec<GameEvent> {
 pub fn initial_state() -> GameState {
     let mut board = Board::EMPTY;
 
-    // Back row: spear, bow, trebuchet, bow, spear across the middle five
-    // columns. The castle columns either side of them start empty; the
-    // trebuchet starts on top of the middle castle. The outermost column on
+    // Spear, bow, trebuchet, bow, spear across the middle five columns of the
+    // back row, and sword, flail, ram, flail, sword in front of them on the
+    // castle row: the ram starts on top of the middle castle, and the outer
+    // castles either side of the line start empty. The outermost column on
     // each wing is empty ground.
     let back = [
         PieceKind::Spearman,
@@ -163,11 +164,7 @@ pub fn initial_state() -> GameState {
 
     for player in 0..NUM_PLAYERS as u8 {
         let back_row = BACK_ROW[player as usize];
-        let front_row = if player == 0 {
-            back_row + 1
-        } else {
-            back_row - 1
-        };
+        let front_row = CASTLE_ROW[player as usize];
         for (i, (&back_kind, &front_kind)) in back.iter().zip(front.iter()).enumerate() {
             // The five pieces sit between the outer two castles.
             let col = CASTLE_COLS[0] + 1 + i as u8;
@@ -231,7 +228,7 @@ pub fn initial_state() -> GameState {
 /// diagonally for a Flank. Moving never captures, so a piece stops before any
 /// occupied square, rocks included, and a standing enemy castle stops it too:
 /// it may neither enter one nor pass through it. Its own castles are open
-/// ground — the trebuchet opens the game standing on one.
+/// ground — the battering ram opens the game standing on one.
 fn move_choices_into(state: &GameState, kind: TokenKind, out: &mut Vec<Choice>) {
     let player = state.current_player;
     let line = state.token(player, kind).line;
@@ -377,20 +374,20 @@ pub fn legal_choices(state: &GameState) -> Vec<Choice> {
 #[derive(Default)]
 pub struct AttackReach {
     /// Friendly pieces in the line with a target to take, as a square bitboard.
-    pub attackers: u64,
+    pub attackers: Bitboard,
     /// Every square in the Attack Zone of this line's pieces, occupied or not.
     /// An attacker with nothing to take today is still counted: walking into
     /// its zone is what gives it a target. Siege engines add nothing — they
     /// destroy castles and leave what stands on one alone.
-    pub zone: u64,
+    pub zone: Bitboard,
     /// Pieces under threat, enemies and rocks alike, as a square bitboard.
-    pub pieces: u64,
+    pub pieces: Bitboard,
     /// Enemy castles under threat, indexed by slot.
     pub castles: [bool; CASTLES_PER_PLAYER],
 }
 
 impl AttackReach {
-    pub fn squares(bits: u64) -> impl Iterator<Item = Square> {
+    pub fn squares(bits: Bitboard) -> impl Iterator<Item = Square> {
         squares_of(bits)
     }
 
@@ -788,28 +785,46 @@ mod tests {
         }
 
         let back = [
-            (2, PieceKind::Spearman),
-            (3, PieceKind::Archer),
-            (4, PieceKind::Trebuchet),
-            (5, PieceKind::Archer),
-            (6, PieceKind::Spearman),
+            PieceKind::Spearman,
+            PieceKind::Archer,
+            PieceKind::Trebuchet,
+            PieceKind::Archer,
+            PieceKind::Spearman,
         ];
-        for (col, kind) in back {
-            assert_eq!(
-                state.piece_at(Square::new(0, col)),
-                Some(Piece { kind, owner: 0 })
-            );
-            assert_eq!(
-                state.piece_at(Square::new(6, col)),
-                Some(Piece { kind, owner: 1 })
-            );
+        let front = [
+            PieceKind::Swordsman,
+            PieceKind::Flail,
+            PieceKind::BatteringRam,
+            PieceKind::Flail,
+            PieceKind::Swordsman,
+        ];
+        for (i, (back_kind, front_kind)) in back.into_iter().zip(front).enumerate() {
+            let col = 2 + i as u8;
+            for (owner, back_row, front_row) in [(0, 0, 1), (1, 8, 7)] {
+                assert_eq!(
+                    state.piece_at(Square::new(back_row, col)),
+                    Some(Piece {
+                        kind: back_kind,
+                        owner
+                    })
+                );
+                assert_eq!(
+                    state.piece_at(Square::new(front_row, col)),
+                    Some(Piece {
+                        kind: front_kind,
+                        owner
+                    })
+                );
+            }
         }
 
-        // The trebuchet starts standing on its own middle castle, and the
-        // castle squares either side of the line hold no piece at all.
-        assert_eq!(GameState::castle_slot_at(Square::new(0, 4)), Some((0, 1)));
-        assert!(state.piece_at(Square::new(0, 1)).is_none());
-        assert!(state.piece_at(Square::new(6, 7)).is_none());
+        // The ram starts standing on its own middle castle with the trebuchet
+        // behind it, and the castle squares either side of the line hold no
+        // piece at all.
+        assert_eq!(GameState::castle_slot_at(Square::new(1, 4)), Some((0, 1)));
+        assert_eq!(GameState::castle_slot_at(Square::new(0, 4)), None);
+        assert!(state.piece_at(Square::new(1, 1)).is_none());
+        assert!(state.piece_at(Square::new(7, 7)).is_none());
 
         // The outer column on each wing is empty ground, top to bottom.
         for row in 0..BOARD_ROWS as u8 {
@@ -826,7 +841,7 @@ mod tests {
             assert_eq!(
                 state.token(player, TokenKind::March),
                 Token {
-                    line: 3,
+                    line: 4,
                     side: TokenSide::Attack
                 }
             );
@@ -854,10 +869,10 @@ mod tests {
         assert_eq!(
             rocks,
             vec![
-                Square::new(3, 2),
-                Square::new(3, 3),
-                Square::new(3, 5),
-                Square::new(3, 6),
+                Square::new(4, 2),
+                Square::new(4, 3),
+                Square::new(4, 5),
+                Square::new(4, 6),
             ],
         );
         // Hilltop, rock, rock, hilltop, rock, rock, hilltop across the middle.
@@ -887,29 +902,29 @@ mod tests {
     #[test]
     fn an_ordinary_piece_kills_a_rock_and_a_siege_engine_cannot() {
         let mut state = empty_board();
-        place_rock(&mut state, 3, 3);
-        place(&mut state, 3, 2, PieceKind::BatteringRam, 0);
-        place(&mut state, 3, 4, PieceKind::Trebuchet, 0);
+        place_rock(&mut state, 4, 3);
+        place(&mut state, 4, 2, PieceKind::BatteringRam, 0);
+        place(&mut state, 4, 4, PieceKind::Trebuchet, 0);
         // Siege engines for the other side too, off in the empty wing: without
         // them player 1 has already lost and the attack below ends the game.
-        place(&mut state, 0, 0, PieceKind::Trebuchet, 1);
-        place(&mut state, 6, 0, PieceKind::BatteringRam, 1);
-        state.token_mut(0, TokenKind::March).line = 3;
+        place(&mut state, 1, 0, PieceKind::Trebuchet, 1);
+        place(&mut state, 7, 0, PieceKind::BatteringRam, 1);
+        state.token_mut(0, TokenKind::March).line = 4;
 
-        // (3,4) is the centre hilltop, so that trebuchet is a live siege
+        // (4,4) is the centre hilltop, so that trebuchet is a live siege
         // weapon — and still has nothing to say to a rock one square away, any
         // more than the ram touching it does.
-        assert!(state.is_hilltop(Square::new(3, 4)));
+        assert!(state.is_hilltop(Square::new(4, 4)));
         assert_eq!(
             attack_preview(&state, 0, TokenKind::March).pieces,
             0,
             "the siege train leaves rocks alone"
         );
 
-        place(&mut state, 2, 3, PieceKind::Swordsman, 0);
+        place(&mut state, 3, 3, PieceKind::Swordsman, 0);
         state.token_mut(0, TokenKind::Flank).line = 3;
         let (pieces, _) = threatened_by(&state, 0, TokenKind::Flank);
-        assert_eq!(pieces, vec![Square::new(3, 3)]);
+        assert_eq!(pieces, vec![Square::new(4, 3)]);
 
         arm_attack(&mut state, 0, TokenKind::Flank, 3);
         settle_state(&mut state);
@@ -917,11 +932,11 @@ mod tests {
             legal_choices(&state),
             vec![
                 Choice::Attack {
-                    from: Square::new(2, 3),
-                    target: Square::new(3, 3),
+                    from: Square::new(3, 3),
+                    target: Square::new(4, 3),
                 },
                 Choice::HoldFire {
-                    from: Square::new(2, 3),
+                    from: Square::new(3, 3),
                 },
             ],
         );
@@ -929,8 +944,8 @@ mod tests {
         let events = apply_logged(
             &mut state,
             &Choice::Attack {
-                from: Square::new(2, 3),
-                target: Square::new(3, 3),
+                from: Square::new(3, 3),
+                target: Square::new(4, 3),
             },
         );
         assert!(events.iter().any(|event| matches!(
@@ -945,7 +960,7 @@ mod tests {
                 ..
             }
         )));
-        assert!(state.piece_at(Square::new(3, 3)).is_none());
+        assert!(state.piece_at(Square::new(4, 3)).is_none());
         assert_eq!(state.outcome, None, "a rock is nobody's to lose");
     }
 
@@ -957,32 +972,32 @@ mod tests {
             .collect();
         assert_eq!(
             hilltops,
-            vec![Square::new(3, 1), Square::new(3, 4), Square::new(3, 7)]
+            vec![Square::new(4, 1), Square::new(4, 4), Square::new(4, 7)]
         );
     }
 
     #[test]
     fn each_piece_attacks_its_printed_zone() {
         let cases = [
-            (PieceKind::Swordsman, vec![(2, 3), (4, 3), (3, 2), (3, 4)]),
-            (PieceKind::Flail, vec![(2, 2), (2, 4), (4, 2), (4, 4)]),
-            (PieceKind::Spearman, vec![(1, 3), (5, 3), (3, 1), (3, 5)]),
-            (PieceKind::Archer, vec![(1, 1), (1, 5), (5, 1), (5, 5)]),
+            (PieceKind::Swordsman, vec![(3, 3), (5, 3), (4, 2), (4, 4)]),
+            (PieceKind::Flail, vec![(3, 2), (3, 4), (5, 2), (5, 4)]),
+            (PieceKind::Spearman, vec![(2, 3), (6, 3), (4, 1), (4, 5)]),
+            (PieceKind::Archer, vec![(2, 1), (2, 5), (6, 1), (6, 5)]),
         ];
 
         for (kind, zone) in cases {
             let mut state = empty_board();
-            place(&mut state, 3, 3, kind, 0);
+            place(&mut state, 4, 3, kind, 0);
             // Ring the attacker with enemies at every square within two, so
             // only the zone decides who is in reach.
-            for row in 1..=5u8 {
+            for row in 2..=6u8 {
                 for col in 1..=5u8 {
-                    if (row, col) != (3, 3) {
+                    if (row, col) != (4, 3) {
                         place(&mut state, row, col, PieceKind::Swordsman, 1);
                     }
                 }
             }
-            state.token_mut(0, TokenKind::March).line = 3;
+            state.token_mut(0, TokenKind::March).line = 4;
             let (mut reached, castles) = threatened_by(&state, 0, TokenKind::March);
             let mut expected: Vec<Square> = zone
                 .iter()
@@ -1063,11 +1078,11 @@ mod tests {
     #[test]
     fn the_centre_trebuchet_destroys_one_castle_a_turn() {
         let mut state = empty_board();
-        place(&mut state, 3, 4, PieceKind::Trebuchet, 0);
-        place(&mut state, 6, 3, PieceKind::BatteringRam, 0);
-        place(&mut state, 0, 2, PieceKind::Trebuchet, 1);
-        place(&mut state, 0, 3, PieceKind::BatteringRam, 1);
-        arm_attack(&mut state, 0, TokenKind::March, 3);
+        place(&mut state, 4, 4, PieceKind::Trebuchet, 0);
+        place(&mut state, 7, 3, PieceKind::BatteringRam, 0);
+        place(&mut state, 1, 2, PieceKind::Trebuchet, 1);
+        place(&mut state, 1, 3, PieceKind::BatteringRam, 1);
+        arm_attack(&mut state, 0, TokenKind::March, 4);
         settle_state(&mut state);
 
         // It bears on all three, and picks one of them.
@@ -1103,26 +1118,26 @@ mod tests {
     #[test]
     fn a_trebuchet_on_the_centre_hilltop_reaches_every_enemy_castle() {
         let mut state = empty_board();
-        place(&mut state, 3, 4, PieceKind::Trebuchet, 0);
-        state.token_mut(0, TokenKind::March).line = 3;
+        place(&mut state, 4, 4, PieceKind::Trebuchet, 0);
+        state.token_mut(0, TokenKind::March).line = 4;
 
         let (pieces, castles) = threatened_by(&state, 0, TokenKind::March);
         assert!(pieces.is_empty(), "a trebuchet does not attack pieces");
         assert_eq!(
             castles,
-            vec![Square::new(6, 1), Square::new(6, 4), Square::new(6, 7)],
+            vec![Square::new(7, 1), Square::new(7, 4), Square::new(7, 7)],
         );
     }
 
     #[test]
     fn a_side_hilltop_trebuchet_reaches_two_castles() {
         let mut state = empty_board();
-        place(&mut state, 3, 1, PieceKind::Trebuchet, 0);
-        state.token_mut(0, TokenKind::March).line = 3;
+        place(&mut state, 4, 1, PieceKind::Trebuchet, 0);
+        state.token_mut(0, TokenKind::March).line = 4;
 
         let (_, castles) = threatened_by(&state, 0, TokenKind::March);
-        // Straight down to (6,1), and diagonally to (6,4).
-        assert_eq!(castles, vec![Square::new(6, 1), Square::new(6, 4)]);
+        // Straight up to (7,1), and diagonally to (7,4).
+        assert_eq!(castles, vec![Square::new(7, 1), Square::new(7, 4)]);
     }
 
     /// The hilltops mark where a trebuchet can attack from, and the rules need
@@ -1156,51 +1171,51 @@ mod tests {
     #[test]
     fn a_battering_ram_destroys_an_adjacent_castle_but_no_pieces() {
         let mut state = empty_board();
-        place(&mut state, 5, 4, PieceKind::BatteringRam, 0);
-        place(&mut state, 5, 5, PieceKind::Swordsman, 1);
-        state.token_mut(0, TokenKind::March).line = 5;
+        place(&mut state, 6, 4, PieceKind::BatteringRam, 0);
+        place(&mut state, 6, 5, PieceKind::Swordsman, 1);
+        state.token_mut(0, TokenKind::March).line = 6;
 
         let (pieces, castles) = threatened_by(&state, 0, TokenKind::March);
-        assert_eq!(castles, vec![Square::new(6, 4)]);
+        assert_eq!(castles, vec![Square::new(7, 4)]);
         assert!(pieces.is_empty(), "a ram does not fight pieces");
     }
 
     #[test]
     fn a_ram_diagonal_to_a_castle_reaches_nothing() {
         let mut state = empty_board();
-        place(&mut state, 5, 2, PieceKind::BatteringRam, 0);
-        state.token_mut(0, TokenKind::March).line = 5;
+        place(&mut state, 6, 2, PieceKind::BatteringRam, 0);
+        state.token_mut(0, TokenKind::March).line = 6;
         let (_, castles) = threatened_by(&state, 0, TokenKind::March);
-        // (6,1) is a castle one square away, but on the diagonal.
+        // (7,1) is a castle one square away, but on the diagonal.
         assert!(castles.is_empty(), "the ram attacks straight only");
     }
 
     #[test]
     fn attacks_spare_friendly_pieces_and_already_ruined_castles() {
         let mut state = empty_board();
-        place(&mut state, 3, 3, PieceKind::Swordsman, 0);
-        place(&mut state, 3, 4, PieceKind::Swordsman, 0);
-        place(&mut state, 2, 3, PieceKind::Archer, 1);
-        place(&mut state, 3, 1, PieceKind::Trebuchet, 0);
+        place(&mut state, 4, 3, PieceKind::Swordsman, 0);
+        place(&mut state, 4, 4, PieceKind::Swordsman, 0);
+        place(&mut state, 3, 3, PieceKind::Archer, 1);
+        place(&mut state, 4, 1, PieceKind::Trebuchet, 0);
         state.castles[1] = [false, true, false];
-        state.token_mut(0, TokenKind::March).line = 3;
+        state.token_mut(0, TokenKind::March).line = 4;
 
         let (pieces, castles) = threatened_by(&state, 0, TokenKind::March);
-        assert_eq!(pieces, vec![Square::new(2, 3)]);
-        // (6,1) is already rubble; only the standing middle castle is hit.
-        assert_eq!(castles, vec![Square::new(6, 4)]);
+        assert_eq!(pieces, vec![Square::new(3, 3)]);
+        // (7,1) is already rubble; only the standing middle castle is hit.
+        assert_eq!(castles, vec![Square::new(7, 4)]);
     }
 
     #[test]
     fn the_flank_token_attacks_down_its_column() {
         let mut state = empty_board();
-        place(&mut state, 2, 4, PieceKind::Flail, 0);
-        place(&mut state, 3, 5, PieceKind::Spearman, 1);
-        place(&mut state, 3, 3, PieceKind::Spearman, 1);
+        place(&mut state, 3, 4, PieceKind::Flail, 0);
+        place(&mut state, 4, 5, PieceKind::Spearman, 1);
+        place(&mut state, 4, 3, PieceKind::Spearman, 1);
         state.token_mut(0, TokenKind::Flank).line = 4;
 
         let (pieces, _) = threatened_by(&state, 0, TokenKind::Flank);
-        assert_eq!(pieces, vec![Square::new(3, 3), Square::new(3, 5)]);
+        assert_eq!(pieces, vec![Square::new(4, 3), Square::new(4, 5)]);
         // The same piece is not in the March token's row, so that token hits
         // nothing.
         state.token_mut(0, TokenKind::March).line = 0;
@@ -1219,50 +1234,49 @@ mod tests {
             &[TokenKind::Flank, TokenKind::March]
         );
 
-        // Flank the swordsman on (1,2) onto the centre hilltop, and the March
-        // token's Attack on the middle row then has the rocks either side of it.
+        // Flank the swordsman on (1,2) as far towards the centre as it goes.
+        // It cannot reach the middle row, so the March token's Attack there
+        // finds nothing in reach and the turn passes with both tokens flipped.
         apply(
             &mut state,
             &Choice::Order {
                 first: TokenKind::Flank,
             },
         );
-        apply(
+        let events = apply_logged(
             &mut state,
             &Choice::Move {
                 from: Square::new(1, 2),
                 to: Square::new(3, 4),
             },
         );
-        assert_eq!(state.phase, Phase::Attack);
-        assert_eq!(
-            legal_choices(&state),
-            vec![
-                Choice::Attack {
-                    from: Square::new(3, 4),
-                    target: Square::new(3, 3),
-                },
-                Choice::Attack {
-                    from: Square::new(3, 4),
-                    target: Square::new(3, 5),
-                },
-                Choice::HoldFire {
-                    from: Square::new(3, 4),
-                },
-            ],
-        );
-
-        apply(
-            &mut state,
-            &Choice::Attack {
-                from: Square::new(3, 4),
-                target: Square::new(3, 3),
-            },
-        );
-        assert!(state.piece_at(Square::new(3, 3)).is_none());
+        assert!(events.contains(&GameEvent::Attacked {
+            player: 0,
+            token: TokenKind::March,
+            line: 4,
+        }));
         assert_eq!(state.current_player, 1);
+        assert_eq!(state.phase, Phase::Slide);
         assert_eq!(state.token(0, TokenKind::March).side, TokenSide::Move);
         assert_eq!(state.token(0, TokenKind::Flank).side, TokenSide::Attack);
+    }
+
+    /// The armies open far enough apart that Ivory's first turn finds nothing
+    /// in reach of its Attack, whatever it slides and moves.
+    #[test]
+    fn the_armies_open_out_of_each_others_reach() {
+        let mut stack = vec![initial_state()];
+        while let Some(state) = stack.pop() {
+            assert_ne!(state.phase, Phase::Attack, "{:?}", state.board);
+            if state.current_player != 0 {
+                continue;
+            }
+            for choice in legal_choices(&state) {
+                let mut next = state;
+                apply(&mut next, &choice);
+                stack.push(next);
+            }
+        }
     }
 
     #[test]
@@ -1292,7 +1306,7 @@ mod tests {
             BOARD_ROWS - 1,
             "every row but the one it is on"
         );
-        assert!(!slides.contains(&Choice::Slide { line: 3 }));
+        assert!(!slides.contains(&Choice::Slide { line: 4 }));
     }
 
     #[test]
@@ -1369,32 +1383,32 @@ mod tests {
     #[test]
     fn an_enemy_castle_stops_a_move_and_a_friendly_one_does_not() {
         let mut state = empty_board();
-        // On the enemy back row, between their outer and middle castles.
-        place(&mut state, 6, 2, PieceKind::Swordsman, 0);
-        move_with(&mut state, TokenKind::March, 6);
+        // On the enemy castle row, between their outer and middle castles.
+        place(&mut state, 7, 2, PieceKind::Swordsman, 0);
+        move_with(&mut state, TokenKind::March, 7);
 
         let destinations = destinations(&state);
         assert!(
-            !destinations.contains(&Square::new(6, 1)),
+            !destinations.contains(&Square::new(7, 1)),
             "cannot enter it"
         );
-        assert!(destinations.contains(&Square::new(6, 3)));
+        assert!(destinations.contains(&Square::new(7, 3)));
         assert!(
-            !destinations.contains(&Square::new(6, 4)),
+            !destinations.contains(&Square::new(7, 4)),
             "the middle castle is enemy ground too"
         );
         assert!(
-            !destinations.contains(&Square::new(6, 5)),
+            !destinations.contains(&Square::new(7, 5)),
             "and a move does not pass through it"
         );
 
-        // Its own castles are open ground: the trebuchet opens standing on one.
+        // Its own castles are open ground: the ram opens standing on one.
         let mut own = empty_board();
-        place(&mut own, 0, 2, PieceKind::Swordsman, 0);
-        move_with(&mut own, TokenKind::March, 0);
+        place(&mut own, 1, 2, PieceKind::Swordsman, 0);
+        move_with(&mut own, TokenKind::March, 1);
         assert!(legal_choices(&own).contains(&Choice::Move {
-            from: Square::new(0, 2),
-            to: Square::new(0, 1),
+            from: Square::new(1, 2),
+            to: Square::new(1, 1),
         }));
     }
 
@@ -1402,20 +1416,25 @@ mod tests {
     fn march_moves_straight_and_flank_moves_diagonally() {
         for (kind, straight) in [(TokenKind::March, true), (TokenKind::Flank, false)] {
             let mut state = empty_board();
-            place(&mut state, 3, 3, PieceKind::Swordsman, 0);
-            move_with(&mut state, kind, 3);
+            place(&mut state, 4, 3, PieceKind::Swordsman, 0);
+            let line = match kind {
+                TokenKind::March => 4,
+                TokenKind::Flank => 3,
+            };
+            move_with(&mut state, kind, line);
             let destinations = destinations(&state);
 
-            // From (3,3) on an empty 9x7 board a March reaches 8 squares along
-            // the row and 6 up the column; a Flank runs three squares to each
-            // of the four edges. Neither line meets a castle on the way.
+            // From (4,3) on an empty 9x9 board a March reaches 8 squares along
+            // the row and 8 along the column; a Flank runs three or four
+            // squares to each of the four edges. No line meets an enemy castle
+            // on the way.
             assert_eq!(
                 destinations.len(),
-                if straight { 14 } else { 12 },
+                if straight { 16 } else { 14 },
                 "{kind:?}"
             );
-            let has_straight = destinations.contains(&Square::new(3, 8));
-            let has_diagonal = destinations.contains(&Square::new(0, 0));
+            let has_straight = destinations.contains(&Square::new(4, 8));
+            let has_diagonal = destinations.contains(&Square::new(0, 7));
             assert_eq!(has_straight, straight, "{kind:?} straight");
             assert_eq!(has_diagonal, !straight, "{kind:?} diagonal");
         }
@@ -1438,12 +1457,12 @@ mod tests {
     #[test]
     fn destroying_the_last_castle_ends_the_game() {
         let mut state = empty_board();
-        place(&mut state, 5, 4, PieceKind::BatteringRam, 0);
-        place(&mut state, 0, 3, PieceKind::Trebuchet, 0);
-        place(&mut state, 6, 2, PieceKind::Trebuchet, 1);
-        place(&mut state, 6, 3, PieceKind::BatteringRam, 1);
+        place(&mut state, 6, 4, PieceKind::BatteringRam, 0);
+        place(&mut state, 1, 3, PieceKind::Trebuchet, 0);
+        place(&mut state, 7, 2, PieceKind::Trebuchet, 1);
+        place(&mut state, 7, 3, PieceKind::BatteringRam, 1);
         state.castles[1] = [false, true, false];
-        arm_attack(&mut state, 0, TokenKind::March, 5);
+        arm_attack(&mut state, 0, TokenKind::March, 6);
 
         // The queued Attack is the only thing left this turn, so taking its one
         // target ends the turn — and the game.
