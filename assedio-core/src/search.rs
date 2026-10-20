@@ -17,11 +17,14 @@ use mcts::rand_core::Rng;
 use mcts::{ChoicesOnRevisit, Config, Game, SearchResult, Searcher, Status};
 use serde::{Deserialize, Serialize};
 
-use crate::rules::{apply, dominant_order, legal_choices_into};
+use crate::rules::{apply, attack_preview, dominant_order, legal_choices_into};
 use crate::types::*;
 
+/// `default` so that a weights file written before a term existed still loads:
+/// the terms it does not name keep the built-in value rather than failing to
+/// parse, which matters for every run saved under `tuning/`.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct EvalParams {
     pub castle: f64,
     pub trebuchet: f64,
@@ -48,6 +51,23 @@ pub struct EvalParams {
     /// Charged to a side down to its last siege engine, which is one attack
     /// away from being unable to win at all.
     pub last_siege_engine: f64,
+    /// Per square an ordinary piece has come forward from its own back row.
+    ///
+    /// Without this the four pieces that fight for the board are worth the
+    /// same number wherever they stand, and staying home costs nothing: the
+    /// search has no reason to develop one at all, and an opening turn
+    /// evaluates identically whether or not it moves.
+    pub advance: f64,
+    /// Per ordinary piece loaded in the side's best-armed line: standing in a
+    /// line one of its tokens names, with something in its Attack Zone to
+    /// take.
+    ///
+    /// An Attack is issued along a token's line and resolves one piece at a
+    /// time, so a piece out of every armed line is a piece that never fires.
+    /// This is what loading a line is worth before the Attack is made, and so
+    /// what makes sliding a token onto a line — and moving into one — a plan
+    /// rather than a coin flip.
+    pub threat: f64,
     /// Divides the score difference before it is squashed into `[0, 1]`.
     pub scale: f64,
 }
@@ -69,6 +89,8 @@ impl Default for EvalParams {
             trebuchet_approach: 0.00464988260198874,
             ram_approach: 0.0,
             last_siege_engine: 3.4657934555696936,
+            advance: 0.15,
+            threat: 1.0,
             scale: 14.0,
         }
     }
@@ -116,6 +138,32 @@ fn distance_to_enemy_castle(state: &GameState, from: Square, enemy: u8) -> u8 {
         .unwrap_or(0)
 }
 
+/// Ordinary pieces the side has loaded: standing in a line one of its tokens
+/// names, with a target in their Attack Zone.
+///
+/// Taken over both tokens and counted on the better of the two, because a line
+/// is loaded whether or not it is this turn's to fire — the side holding a
+/// loaded line is the side with an Attack in hand. Siege engines are left out:
+/// what a trebuchet or a ram bears on is already scored by the castle terms,
+/// and counting it here too would pay for the same castle twice.
+fn loaded_pieces(state: &GameState, player: u8) -> u32 {
+    TOKEN_KINDS
+        .iter()
+        .map(|&kind| {
+            squares_of(attack_preview(state, player, kind).attackers)
+                .filter(|&square| {
+                    !state
+                        .piece_at(square)
+                        .expect("an attacker is an occupied square")
+                        .kind
+                        .is_siege()
+                })
+                .count() as u32
+        })
+        .max()
+        .unwrap_or(0)
+}
+
 /// One side's standing in arbitrary units. Only the difference between the two
 /// sides is ever used.
 pub fn side_score(state: &GameState, player: u8, params: &EvalParams) -> f64 {
@@ -149,14 +197,20 @@ pub fn side_score(state: &GameState, player: u8, params: &EvalParams) -> f64 {
                         params.ram_approach * distance_to_enemy_castle(state, square, enemy) as f64;
                 }
             }
-            _ => {}
+            // The four ordinary pieces have no objective of their own, so
+            // apart from this the score says nothing about where they stand.
+            PieceKind::Swordsman | PieceKind::Flail | PieceKind::Spearman | PieceKind::Archer => {
+                score += params.advance * square.row.abs_diff(BACK_ROW[player as usize]) as f64;
+            }
+            // A rock belongs to neither side, so it is never in this loop.
+            PieceKind::Rock => {}
         }
     }
 
     if siege_engines == 1 {
         score -= params.last_siege_engine;
     }
-    score
+    score + params.threat * loaded_pieces(state, player) as f64
 }
 
 pub fn terminal_rewards(outcome: Outcome) -> [f64; 2] {
@@ -382,6 +436,24 @@ mod tests {
     use super::*;
     use crate::rand_core::SeedableRng;
     use crate::rules::{initial_state, legal_choices};
+    use crate::types::{Board, Piece, Square, NEUTRAL};
+
+    /// The opening with the board swept clean, so a test can state exactly the
+    /// position it means. Castles and command tokens are left as dealt.
+    fn empty_board() -> GameState {
+        let mut state = initial_state();
+        state.board = Board::EMPTY;
+        state
+    }
+
+    fn place(state: &mut GameState, row: u8, col: u8, kind: PieceKind, owner: u8) {
+        state.set_piece(Square::new(row, col), Some(Piece { kind, owner }));
+    }
+
+    /// Point `player`'s `kind` token at `line`.
+    fn aim(state: &mut GameState, player: u8, kind: TokenKind, line: u8) {
+        state.token_mut(player, kind).line = line;
+    }
 
     #[test]
     fn the_dominant_order_is_answered_without_a_search() {
@@ -396,5 +468,67 @@ mod tests {
 
         assert_eq!(result.choice, Choice::Order { first });
         assert_eq!(result.iterations_used, 0);
+    }
+
+    /// The defect the `advance` term exists for: a piece was worth exactly as
+    /// much on its own back row as in the enemy's half, so no opening move
+    /// beat standing still.
+    #[test]
+    fn an_ordinary_piece_is_worth_more_forward_than_at_home() {
+        let params = EvalParams::default();
+        let mut state = empty_board();
+        place(&mut state, 0, 2, PieceKind::Swordsman, 0);
+        let home = side_score(&state, 0, &params);
+
+        state.set_piece(Square::new(0, 2), None);
+        place(&mut state, 5, 2, PieceKind::Swordsman, 0);
+        let forward = side_score(&state, 0, &params);
+
+        assert!(
+            forward > home,
+            "a swordsman in the enemy's half scored {forward}, no better than one at home at {home}"
+        );
+    }
+
+    /// And what makes developing worth the turn: a piece that is in an armed
+    /// line with something to take is worth more than the same piece one rank
+    /// off it.
+    #[test]
+    fn a_piece_loaded_into_an_armed_line_is_worth_something() {
+        let params = EvalParams::default();
+        let mut state = empty_board();
+        place(&mut state, 4, 2, PieceKind::Swordsman, 0);
+        place(&mut state, 4, 3, PieceKind::Flail, 1);
+        aim(&mut state, 0, TokenKind::March, 5);
+        let off_line = side_score(&state, 0, &params);
+
+        aim(&mut state, 0, TokenKind::March, 4);
+        let loaded = side_score(&state, 0, &params);
+
+        assert!(
+            loaded > off_line,
+            "a swordsman loaded onto the armed row scored {loaded}, no better than {off_line} off it"
+        );
+    }
+
+    /// A rock is nobody's piece, so it belongs to neither side's score however
+    /// far up the board it is — and nothing may be paid for it twice.
+    #[test]
+    fn the_neutral_rocks_are_worth_nothing_to_either_side() {
+        let params = EvalParams::default();
+        let mut state = empty_board();
+        let bare = (
+            side_score(&state, 0, &params),
+            side_score(&state, 1, &params),
+        );
+
+        place(&mut state, 6, 0, PieceKind::Rock, NEUTRAL);
+        assert_eq!(
+            bare,
+            (
+                side_score(&state, 0, &params),
+                side_score(&state, 1, &params)
+            )
+        );
     }
 }

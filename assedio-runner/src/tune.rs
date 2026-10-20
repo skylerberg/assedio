@@ -1,7 +1,7 @@
 //! Tuning the leaf evaluation against itself.
 //!
 //! The weights in [`EvalParams`] were set by hand, and hand-set numbers in a
-//! fourteen-dimensional space are never the best ones available. This wires
+//! sixteen-dimensional space are never the best ones available. This wires
 //! `mcts-tune` up to them: candidates are proposed, each plays a few hundred
 //! games against the rest of its generation (or, with `--field baseline`,
 //! against the parameters the run started from), and the win rates drive the
@@ -34,7 +34,7 @@ use mcts_tune::{
 /// position. Handing an optimizer both ends of that family gives it an exact
 /// flat direction to wander along, spending hundreds of games per generation on
 /// candidates that cannot play differently from one another. Pinning `scale`
-/// at its seed value removes the redundancy and leaves fourteen real degrees of
+/// at its seed value removes the redundancy and leaves sixteen real degrees of
 /// freedom.
 const GENES: &[&str] = &[
     "castle",
@@ -51,6 +51,8 @@ const GENES: &[&str] = &[
     "trebuchetApproach",
     "ramApproach",
     "lastSiegeEngine",
+    "advance",
+    "threat",
 ];
 
 /// Above this a weight saturates the `tanh` at every position, which flattens
@@ -91,6 +93,8 @@ impl Tunable for Weights {
             params.trebuchet_approach,
             params.ram_approach,
             params.last_siege_engine,
+            params.advance,
+            params.threat,
         ]
     }
 
@@ -110,6 +114,8 @@ impl Tunable for Weights {
             trebuchet_approach: genes[11],
             ram_approach: genes[12],
             last_siege_engine: genes[13],
+            advance: genes[14],
+            threat: genes[15],
             // Pinned. See `GENES`.
             scale: self.0.scale,
         })
@@ -118,7 +124,9 @@ impl Tunable for Weights {
     /// Every gene is the magnitude of an effect whose direction the formula
     /// already fixes — `trebuchet_approach` is subtracted, so a negative one
     /// would pay a trebuchet to walk away from the hilltops. Holding them at or
-    /// above zero keeps the evaluation meaning what it says.
+    /// above zero keeps the evaluation meaning what it says. A zero is
+    /// meaningful and allowed: it switches that term off, which is how a run
+    /// says the term does not earn its place.
     fn repair(genes: &mut [f64]) {
         for gene in genes {
             *gene = gene.clamp(0.0, MAX_WEIGHT);
@@ -207,7 +215,7 @@ impl From<Field> for Opponents {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum Strategy {
     /// Covariance Matrix Adaptation. Learns which weights move together, which
-    /// is most of what there is to learn about fourteen correlated weights.
+    /// is most of what there is to learn about sixteen correlated weights.
     CmaEs,
     /// Elitism, tournament selection, uniform crossover, Gaussian mutation.
     Ga,

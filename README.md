@@ -86,8 +86,26 @@ identical.
 random rollout's reach: random play will not walk a trebuchet onto a hilltop or
 push a ram up to a castle wall. Left to an uninformed rollout the search learns
 nothing. `search.rs` scores material, castles, a trebuchet's distance from the
-nearest hilltop and a ram's from the nearest castle, and squashes the difference
-into `[0, 1]` — which is what gives the search a gradient to climb.
+nearest hilltop and a ram's from the nearest castle, how far the four ordinary
+pieces have come off their own back row, and how many of them stand in a line a
+command token names with something in their Attack Zone. The difference between
+the two sides is squashed into `[0, 1]`, which is the gradient the search
+climbs.
+
+The two positional terms are what keep the opening from being a coin flip.
+Material and castles are the only things that decide a game, but neither moves
+in the first exchange: with no term for where a swordsman stands, every opening
+choice evaluated identically — `Pass` included — and the search slid its token
+arbitrarily, onto a line where it had nothing to move about half the time. It
+is the same blindness that made it pass a Move it could have used: a square was
+worth nothing, and a pass never loses material.
+
+**The rollout horizon is the other knob.** `rollout_plies` (in `SearchContext`)
+is how many further decisions of random play each leaf simulates before it is
+evaluated. Raising it is worth real strength — 32 plies beat 8 by 59% over 400
+games at 4000 iterations — at roughly twice the time per decision, and past
+about 64 plies it stops paying. It does not make the search want to move: only
+the evaluation can do that. `simulate` is how either change gets judged.
 
 Search runs at roughly 600k iterations a second natively at a small budget,
 falling below 300k by the half-million iterations of the top difficulty. Every
@@ -127,7 +145,7 @@ confirmed. `--iterations` sets both sides' search budget; `--iterations-a` and
 
 ## Tuning the weights
 
-`tune` searches the fourteen evaluation weights by self-play, on the `mcts-tune`
+`tune` searches the sixteen evaluation weights by self-play, on the `mcts-tune`
 crate from the `monte_carlo` repository. Candidates are proposed by CMA-ES (or
 `--strategy ga`), each plays a few hundred games against the rest of its
 generation, and the win rates drive the search. Every generation writes its
