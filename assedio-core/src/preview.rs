@@ -334,13 +334,14 @@ mod tests {
         state.phase = Phase::Activate;
     }
 
-    /// A swordsman that can leave the attack row but has nothing to take from
-    /// it, so the Attack is idle until the move says otherwise.
+    /// A swordsman on its own castle that can leave the attack row but has
+    /// nothing to take from it, so the Attack is idle until the move says
+    /// otherwise.
     fn barren_attack() -> GameState {
         let mut state = empty_board();
         spare_engines(&mut state);
-        place(&mut state, 0, 1, PieceKind::Swordsman, 0);
-        token(&mut state, 0, TokenKind::March, 0, TokenSide::Attack);
+        place(&mut state, 1, 1, PieceKind::Swordsman, 0);
+        token(&mut state, 0, TokenKind::March, 1, TokenSide::Attack);
         token(&mut state, 0, TokenKind::Flank, 1, TokenSide::Move);
         order_phase(&mut state, 0);
         state
@@ -354,12 +355,12 @@ mod tests {
     #[test]
     fn the_move_leads_even_when_it_is_what_arms_the_attack() {
         // The row the March token is armed on is empty of ours, and the Flank
-        // token can walk the swordsman on b1 onto it beside the enemy on d2.
+        // token can walk the swordsman on b2 onto it beside the enemy on d3.
         // Attacking first would throw that away, so the player is not offered
         // it.
         let mut state = barren_attack();
-        token(&mut state, 0, TokenKind::March, 1, TokenSide::Attack);
-        place(&mut state, 1, 3, PieceKind::Swordsman, 1);
+        token(&mut state, 0, TokenKind::March, 2, TokenSide::Attack);
+        place(&mut state, 2, 3, PieceKind::Swordsman, 1);
 
         assert_eq!(forced_order(&state), Some(TokenKind::Flank));
     }
@@ -367,9 +368,9 @@ mod tests {
     #[test]
     fn order_is_a_real_choice_when_moving_away_spares_a_victim() {
         let mut state = barren_attack();
-        // The swordsman on b1 now bears on b2 — and stepping off the row to
-        // reach b2's diagonal is exactly what spares the piece standing there.
-        place(&mut state, 1, 1, PieceKind::Swordsman, 1);
+        // The swordsman on b2 now bears on b3 — and stepping off the row to
+        // reach b3's diagonal is exactly what spares the piece standing there.
+        place(&mut state, 2, 1, PieceKind::Swordsman, 1);
 
         assert_eq!(forced_order(&state), None);
     }
@@ -379,7 +380,7 @@ mod tests {
         // The Flank token names a column with nothing of ours on it, so that
         // activation can only pass and the Attack is all there is to sequence.
         let mut state = barren_attack();
-        place(&mut state, 1, 1, PieceKind::Swordsman, 1);
+        place(&mut state, 2, 1, PieceKind::Swordsman, 1);
         token(&mut state, 0, TokenKind::Flank, 6, TokenSide::Move);
 
         assert_eq!(forced_order(&state), Some(TokenKind::March));
@@ -626,13 +627,13 @@ mod tests {
     fn a_ram_reaches_only_the_enemy_castle_beside_it() {
         let mut state = empty_board();
         spare_engines(&mut state);
-        place(&mut state, 1, 4, PieceKind::BatteringRam, 1);
-        place(&mut state, 1, 3, PieceKind::Swordsman, 0);
+        place(&mut state, 2, 4, PieceKind::BatteringRam, 1);
+        place(&mut state, 2, 3, PieceKind::Swordsman, 0);
 
-        let reach = piece_reach(&state, Square::new(1, 4)).unwrap();
+        let reach = piece_reach(&state, Square::new(2, 4)).unwrap();
 
-        assert_eq!(reach.zone, vec![Square::new(0, 4)]);
-        assert_eq!(reach.targets, vec![Square::new(0, 4)]);
+        assert_eq!(reach.zone, vec![Square::new(1, 4)]);
+        assert_eq!(reach.targets, vec![Square::new(1, 4)]);
     }
 
     #[test]

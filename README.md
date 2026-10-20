@@ -1,7 +1,7 @@
 # Assedio
 
 A playable implementation of Assedio — a two-player siege game on a board nine
-columns across and seven rows deep — with a browser interface and an opponent
+columns across and nine rows deep — with a browser interface and an opponent
 driven by Monte Carlo tree search. The complete rules, including every reading
 chosen where the rules sheet is silent, are in [RULES.md](RULES.md).
 
@@ -204,9 +204,9 @@ higher; if they do not, the population was cycling, and an earlier
 
 ## A note on the game
 
-Games are short. Under equal search a game reaches a verdict in about eleven
-turns, and nearly all of them end by destroying a side's siege engines rather
-than its castles — an attacker takes one target per Attack, so three castles
+Games are short. Under equal search a game reaches a verdict in about nine
+turns, and four in five end by destroying a side's siege engines rather than its
+castles — an attacker takes one target per Attack, so three castles
 take at least three turns to bring down, while two siege engines can be picked
 off much sooner. The trebuchet is still what both sides play around: castles and
 hilltops share columns, so from the centre hilltop it bears on every castle on

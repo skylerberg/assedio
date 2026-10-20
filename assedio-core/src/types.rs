@@ -1,17 +1,17 @@
 //! Board geometry, pieces, command tokens, and the game state they live in.
 //!
 //! `GameState` is `Copy` on purpose: the search clones one per determinization
-//! and per rollout step, and a memcpy of under 200 bytes is cheaper than
+//! and per rollout step, and a memcpy of a few hundred bytes is cheaper than
 //! anything that chases a pointer. That is why the board is a fixed array with
 //! its occupancy kept as bitboards beside it, and the activation queue is an
 //! array plus a length rather than a `Vec`.
 
 use serde::{Deserialize, Serialize};
 
-/// The board is wider than it is deep: nine columns across, seven rows up. The
-/// outermost columns carry no terrain and start empty, which is what gives the
-/// middle row room for the rocks.
-pub const BOARD_ROWS: usize = 7;
+/// Nine columns across, nine rows up. The outermost columns carry no terrain
+/// and start empty, which is what gives the middle row room for the rocks; the
+/// outermost rows lie behind the castles, where each army starts its back row.
+pub const BOARD_ROWS: usize = 9;
 pub const BOARD_COLS: usize = 9;
 pub const BOARD_SQUARES: usize = BOARD_ROWS * BOARD_COLS;
 pub const NUM_PLAYERS: usize = 2;
@@ -20,8 +20,11 @@ pub const CASTLES_PER_PLAYER: usize = 3;
 /// The owner of a rock, which belongs to neither side.
 pub const NEUTRAL: u8 = 2;
 
-/// Back row for each player: where their castles stand.
-pub const BACK_ROW: [u8; NUM_PLAYERS] = [0, 6];
+/// Each player's back row, along their own edge of the board.
+pub const BACK_ROW: [u8; NUM_PLAYERS] = [0, 8];
+
+/// The row each player's castles stand on, one in from their back row.
+pub const CASTLE_ROW: [u8; NUM_PLAYERS] = [1, 7];
 
 /// Columns carrying a castle on a player's back row.
 pub const CASTLE_COLS: [u8; CASTLES_PER_PLAYER] = [1, 4, 7];
@@ -29,7 +32,7 @@ pub const CASTLE_COLS: [u8; CASTLES_PER_PLAYER] = [1, 4, 7];
 /// The middle row, and the columns on it that are hilltops. Castles and
 /// hilltops share columns, which is what puts every castle exactly three
 /// squares from a hilltop — straight for the near ones, diagonal for the rest.
-pub const HILLTOP_ROW: u8 = 3;
+pub const HILLTOP_ROW: u8 = 4;
 pub const HILLTOP_COLS: [u8; 3] = CASTLE_COLS;
 
 /// The rocks fill the middle row between the hilltops.
@@ -39,9 +42,10 @@ pub const ROCK_COLS: [u8; 4] = [2, 3, 5, 6];
 /// rules forces progress, and a search needs every line to terminate.
 pub const MAX_TURNS: u32 = 300;
 
-/// One bit per square, in [`Square::index`] order. The board has 63 squares,
-/// so a whole-board set is one `u64` and set arithmetic is one instruction.
-pub type Bitboard = u64;
+/// One bit per square, in [`Square::index`] order. The board has 81 squares,
+/// too many for a `u64`, so a whole-board set is two machine words and set
+/// arithmetic is two instructions.
+pub type Bitboard = u128;
 
 /// The squares in `bits`, in [`Square::index`] order.
 pub fn squares_of(mut bits: Bitboard) -> impl Iterator<Item = Square> {
@@ -119,7 +123,7 @@ const fn castle_slots() -> [u8; BOARD_SQUARES] {
     while owner < NUM_PLAYERS {
         let mut index = 0;
         while index < CASTLES_PER_PLAYER {
-            let square = BACK_ROW[owner] as usize * BOARD_COLS + CASTLE_COLS[index] as usize;
+            let square = CASTLE_ROW[owner] as usize * BOARD_COLS + CASTLE_COLS[index] as usize;
             slots[square] = (owner * CASTLES_PER_PLAYER + index) as u8;
             index += 1;
         }
@@ -468,8 +472,8 @@ impl GameState {
             .flat_map(|row| (0..BOARD_COLS as u8).map(move |col| Square::new(row, col)))
     }
 
-    /// How many lines of this kind the board has: seven rows for the March
-    /// token, nine columns for the Flank token.
+    /// How many lines of this kind the board has: its rows for the March token,
+    /// its columns for the Flank token.
     pub fn line_count(kind: TokenKind) -> u8 {
         match kind {
             TokenKind::March => BOARD_ROWS as u8,
@@ -557,7 +561,7 @@ impl GameState {
     }
 
     pub fn castle_square(owner: u8, index: usize) -> Square {
-        Square::new(BACK_ROW[owner as usize], CASTLE_COLS[index])
+        Square::new(CASTLE_ROW[owner as usize], CASTLE_COLS[index])
     }
 
     pub fn castles_standing(&self, player: u8) -> usize {

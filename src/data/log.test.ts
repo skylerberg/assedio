@@ -15,8 +15,8 @@ import type { GameEvent, GameState, PieceKind, Square } from './types'
 describe('board coordinates', () => {
   it('names squares with columns left to right and rows up from Ivory', () => {
     expect(squareName({ row: 0, col: 0 })).toBe('a1')
-    expect(squareName({ row: 6, col: 8 })).toBe('i7')
-    expect(squareName({ row: 3, col: 4 })).toBe('e4')
+    expect(squareName({ row: 8, col: 8 })).toBe('i9')
+    expect(squareName({ row: 4, col: 4 })).toBe('e5')
   })
 
   it('names a token line by the kind of line it rides', () => {
@@ -80,11 +80,11 @@ describe('describeEvent', () => {
       player: 0,
       token: 'march',
       kind: 'trebuchet',
-      from: { row: 3, col: 4 },
-      target: { row: 6, col: 1 },
+      from: { row: 4, col: 4 },
+      target: { row: 7, col: 1 },
       casualty: { type: 'castle' },
     }
-    expect(describeEvent(event)?.text).toBe('Trebuchet e4 destroys the castle on b7')
+    expect(describeEvent(event)?.text).toBe('Trebuchet e5 destroys the castle on b8')
   })
 
   it('names a killed rock by its square', () => {
@@ -93,11 +93,11 @@ describe('describeEvent', () => {
       player: 1,
       token: 'flank',
       kind: 'swordsman',
-      from: { row: 4, col: 3 },
-      target: { row: 3, col: 3 },
+      from: { row: 5, col: 3 },
+      target: { row: 4, col: 3 },
       casualty: { type: 'piece', piece: { kind: 'rock', owner: NEUTRAL } },
     }
-    expect(describeEvent(event)?.text).toBe('Swordsman d5 kills the rock on d4')
+    expect(describeEvent(event)?.text).toBe('Swordsman d6 kills the rock on d5')
   })
 
   it('records an attacker that held its fire', () => {
@@ -191,7 +191,7 @@ describe('describeMoveOutcome', () => {
   const state = position([
     [{ row: 0, col: 1 }, 'spearman', 0],
     [{ row: 1, col: 3 }, 'swordsman', 1],
-    [{ row: 3, col: 2 }, 'rock', NEUTRAL],
+    [{ row: 4, col: 2 }, 'rock', NEUTRAL],
   ])
 
   it('names what the Attack after the move would take', () => {
@@ -201,12 +201,12 @@ describe('describeMoveOutcome', () => {
         to: { row: 1, col: 2 },
         threatenedPieces: [
           { row: 1, col: 3 },
-          { row: 3, col: 2 },
+          { row: 4, col: 2 },
         ],
-        threatenedCastles: [{ row: 6, col: 1 }],
+        threatenedCastles: [{ row: 7, col: 1 }],
       }),
     ).toBe(
-      'Spearman b1 → c2, and your Attack then bears on Swordsman d2, the rock on c4 and the castle on b7.',
+      'Spearman b1 → c2, and your Attack then bears on Swordsman d2, the rock on c5 and the castle on b8.',
     )
   })
 
@@ -313,8 +313,8 @@ describe('describeTurn', () => {
 
 describe('describeThreat', () => {
   const state = position([
-    [{ row: 0, col: 4 }, 'trebuchet', 0],
-    [{ row: 1, col: 4 }, 'batteringRam', 1],
+    [{ row: 1, col: 4 }, 'batteringRam', 0],
+    [{ row: 2, col: 4 }, 'batteringRam', 1],
     [{ row: 2, col: 2 }, 'swordsman', 0],
   ])
 
@@ -336,11 +336,11 @@ describe('describeThreat', () => {
     expect(
       describeThreat(
         state,
-        { row: 0, col: 4 },
-        [{ from: { row: 1, col: 4 }, kind: 'batteringRam', targets: [{ row: 0, col: 4 }] }],
+        { row: 1, col: 4 },
+        [{ from: { row: 2, col: 4 }, kind: 'batteringRam', targets: [{ row: 1, col: 4 }] }],
         "Umber's Attack along column e next turn",
       ),
-    ).toBe("Umber's Attack along column e next turn: Battering Ram e2 can destroy this castle.")
+    ).toBe("Umber's Attack along column e next turn: Battering Ram e3 can destroy this castle.")
   })
 
   it('says nothing when no attacker reaches the square', () => {

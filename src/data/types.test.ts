@@ -31,11 +31,11 @@ describe('terrain', () => {
       [true, true, true],
       [true, true, true],
     ])
-    expect(isHilltop(intact, { row: 3, col: 1 })).toBe(true)
-    expect(isHilltop(intact, { row: 3, col: 4 })).toBe(true)
-    expect(isHilltop(intact, { row: 3, col: 7 })).toBe(true)
-    expect(isHilltop(intact, { row: 0, col: 1 })).toBe(false)
-    expect(isHilltop(intact, { row: 3, col: 2 })).toBe(false)
+    expect(isHilltop(intact, { row: 4, col: 1 })).toBe(true)
+    expect(isHilltop(intact, { row: 4, col: 4 })).toBe(true)
+    expect(isHilltop(intact, { row: 4, col: 7 })).toBe(true)
+    expect(isHilltop(intact, { row: 1, col: 1 })).toBe(false)
+    expect(isHilltop(intact, { row: 4, col: 2 })).toBe(false)
   })
 
   it('turns every destroyed castle into a hilltop', () => {
@@ -43,16 +43,17 @@ describe('terrain', () => {
       [false, true, true],
       [true, true, false],
     ])
-    expect(isHilltop(destroyed, { row: 0, col: 1 })).toBe(true)
-    expect(isHilltop(destroyed, { row: 6, col: 7 })).toBe(true)
-    expect(isHilltop(destroyed, { row: 0, col: 4 })).toBe(false)
+    expect(isHilltop(destroyed, { row: 1, col: 1 })).toBe(true)
+    expect(isHilltop(destroyed, { row: 7, col: 7 })).toBe(true)
+    expect(isHilltop(destroyed, { row: 1, col: 4 })).toBe(false)
   })
 
-  it('finds a castle slot on the three back-row castle columns', () => {
-    expect(castleSlotAt({ row: 0, col: 4 })).toEqual({ owner: 0, index: 1 })
-    expect(castleSlotAt({ row: 6, col: 7 })).toEqual({ owner: 1, index: 2 })
-    expect(castleSlotAt({ row: 0, col: 2 })).toBeNull()
-    expect(castleSlotAt({ row: 0, col: 0 })).toBeNull()
-    expect(castleSlotAt({ row: 3, col: 4 })).toBeNull()
+  it('finds a castle slot on the three castle columns, one row in from each back row', () => {
+    expect(castleSlotAt({ row: 1, col: 4 })).toEqual({ owner: 0, index: 1 })
+    expect(castleSlotAt({ row: 7, col: 7 })).toEqual({ owner: 1, index: 2 })
+    expect(castleSlotAt({ row: 1, col: 2 })).toBeNull()
+    expect(castleSlotAt({ row: 0, col: 4 })).toBeNull()
+    expect(castleSlotAt({ row: 8, col: 1 })).toBeNull()
+    expect(castleSlotAt({ row: 4, col: 4 })).toBeNull()
   })
 })

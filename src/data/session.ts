@@ -21,7 +21,7 @@ export interface SavedGame {
 
 const KEY = 'assedio:game'
 /** Bumped whenever the shape changes, so an old save is dropped, not misread. */
-const VERSION = 1
+const VERSION = 2
 
 /** Browser storage can be full, disabled or private; a save is a convenience,
     so failing to make one must never interrupt the game. */

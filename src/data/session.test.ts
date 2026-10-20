@@ -3,7 +3,7 @@ import { parseSave } from './session'
 import { BOARD_COLS, BOARD_ROWS } from './types'
 
 const valid = {
-  version: 1,
+  version: 2,
   setup: { seats: ['human', 'ai'], iterations: 30_000, difficulty: 'Knight' },
   game: { board: Array.from({ length: BOARD_ROWS }, () => []), turn: 4 },
   turns: [],

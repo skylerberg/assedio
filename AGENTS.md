@@ -1,6 +1,6 @@
 # Assedio
 
-Assedio is a two-player siege game on a 9×7 board. Complete rules, including
+Assedio is a two-player siege game on a 9×9 board. Complete rules, including
 every interpretation chosen where the rules sheet is silent, are in `RULES.md`.
 Code and interface use the sheet's terms: the March and Flank tokens, each with
 a Move side and an Attack side, rows and columns, Attack Zones, and rocks.
@@ -54,7 +54,7 @@ Rust workspace plus a Svelte frontend:
   implemented in TypeScript is a bug.
 - `GameState` is `Copy`: fixed arrays, no `Vec`, so a determinization is a
   memcpy. Keep it that way — the search clones one per iteration.
-- The `Board` keeps each owner's squares as a `u64` bitboard beside its cells,
+- The `Board` keeps each owner's squares as a `u128` bitboard beside its cells,
   so line, zone and target questions are masks rather than walks. `Board::set`
   is the only writer and keeps the two in step; the wire format serializes the
   cells alone.
