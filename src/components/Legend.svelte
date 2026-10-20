@@ -86,11 +86,18 @@
 </ul>
 
 <style>
+  /* Two rows of swatches are always kept, as the hint keeps two lines: hovering
+     the board adds keys, and a key that wrapped onto a new row would grow the
+     panel and shrink the board above it. */
   .legend {
+    --row: 1.15rem;
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
+    align-content: flex-start;
+    min-height: calc(2 * var(--row) + 0.25rem);
     gap: 0.25rem 0.9rem;
+    line-height: var(--row);
     list-style: none;
     font-size: 0.8rem;
     font-weight: 600;
@@ -105,8 +112,8 @@
 
   .swatch {
     position: relative;
-    width: 1.15rem;
-    height: 1.15rem;
+    width: var(--row);
+    height: var(--row);
     flex: none;
     background: var(--cell);
     box-shadow: inset 0 0 0 1px var(--board-line);

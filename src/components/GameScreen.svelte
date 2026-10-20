@@ -912,7 +912,7 @@
     width: min(46rem, 100%);
     /* Tall enough for every phase's prompt, so the board above never resizes
        between one decision and the next. */
-    min-height: 12rem;
+    min-height: 13rem;
     padding: 0.55rem 1rem 0.6rem;
     display: grid;
     align-content: start;
