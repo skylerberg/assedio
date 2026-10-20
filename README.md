@@ -204,8 +204,8 @@ higher; if they do not, the population was cycling, and an earlier
 
 ## A note on the game
 
-Games are short. Under equal search a game reaches a verdict in about nine
-turns, and four in five end by destroying a side's siege engines rather than its
+Games are short. Under equal search a game reaches a verdict in about eleven
+turns, and six in seven end by destroying a side's siege engines rather than its
 castles — an attacker takes one target per Attack, so three castles
 take at least three turns to bring down, while two siege engines can be picked
 off much sooner. The trebuchet is still what both sides play around: castles and
