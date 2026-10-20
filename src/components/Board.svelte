@@ -13,7 +13,7 @@
     lineName,
     squareName,
   } from '../data/log'
-  import { squareIndex } from '../data/turns'
+  import { piecesInIdOrder } from '../data/turns'
   import type { PieceIds, TurnMarks } from '../data/turns'
   import { applyChoice, attackShots, pieceReach } from '../engine/wasmEngine'
   import {
@@ -277,18 +277,7 @@
     return ''
   }
 
-  let pieces = $derived.by(() => {
-    const list = []
-    for (let row = 0; row < BOARD_ROWS; row++) {
-      for (let col = 0; col < BOARD_COLS; col++) {
-        const piece = game.board[row][col]
-        if (!piece) continue
-        const index = squareIndex({ row, col })
-        list.push({ id: ids[index] || -1 - index, square: { row, col }, piece })
-      }
-    }
-    return list
-  })
+  let pieces = $derived(piecesInIdOrder(game, ids))
 
   /** Where each token sits on its track. A side's Flank token rides the edge
       beside its own back row, its March token the edge to its right. */

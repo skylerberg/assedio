@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { advanceIds, idsAfter, initialIds, recordTurns, summarize, turnMarks } from './turns'
+import {
+  advanceIds,
+  idsAfter,
+  initialIds,
+  piecesInIdOrder,
+  recordTurns,
+  summarize,
+  turnMarks,
+} from './turns'
 import { BOARD_COLS, BOARD_ROWS, NEUTRAL } from './types'
 import type { GameEvent, GameState } from './types'
 
@@ -123,6 +131,19 @@ describe('piece ids', () => {
     expect(ids[2 * BOARD_COLS + 3]).toBe(1)
     expect(ids[1 * BOARD_COLS + 2]).toBe(0)
     expect(ids[3 * BOARD_COLS + 3]).toBe(0)
+  })
+
+  it('keeps a piece in its place in the list when it moves past another', () => {
+    const leap: GameEvent = { ...moved, to: { row: 4, col: 4 } }
+    const after = stateWith([
+      [3, 3],
+      [4, 4],
+    ])
+    const pieces = piecesInIdOrder(after, advanceIds(initialIds(start), [leap]))
+    expect(pieces.map((entry) => [entry.id, entry.square])).toEqual([
+      [1, { row: 4, col: 4 }],
+      [2, { row: 3, col: 3 }],
+    ])
   })
 
   it('replays a prefix of the game to the same ids', () => {
